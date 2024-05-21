@@ -27,6 +27,7 @@ type (
 	// list of proxied servers:
 	tBackendServers = map[string]tDestination
 
+	// `TProxyHandler` is the page handler for proxy requests
 	TProxyHandler struct {
 		backendServers tBackendServers
 	}
@@ -138,7 +139,7 @@ func (ph TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Re
 } // ServeHTTP()
 
 // `NewProxyHandler()` creates a new instance of TProxyHandler.
-// It initializes the backendServers map with the list of available servers.
+// It initialises the backendServers map with the list of available servers.
 //
 // Parameters:
 // - `aConfigFile` (string): The path to the configuration file containing
