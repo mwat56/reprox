@@ -1,7 +1,8 @@
 /*
-   Copyright © 2024  M.Watermann, 10247 Berlin, Germany
-               All rights reserved
-           EMail : <support@mwat.de>
+Copyright © 2024  M.Watermann, 10247 Berlin, Germany
+
+	    All rights reserved
+	EMail : <support@mwat.de>
 */
 package main
 
@@ -106,10 +107,12 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 // Parameters:
 // - `aHandler` (http.Handler): The handler to be invoked for each
 // request received by the server.
+// - `aCertFile` (string): The path to the certificate file for TLS.
+// - `aKeyFile` (string): The path to the private key file for TLS.
 //
 // Returns:
 // - `*http.Server`: A pointer to the newly created and configured HTTPS server.
-func createServer443(aHandler http.Handler) *http.Server {
+func createServer443(aHandler http.Handler, aCertFile, aKeyFile string) *http.Server {
 	result := createServ(aHandler, ":443")
 
 	// see:
@@ -140,7 +143,14 @@ func createServer443(aHandler http.Handler) *http.Server {
 			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
 			tls.TLS_RSA_WITH_3DES_EDE_CBC_SHA,
 			tls.TLS_RSA_WITH_RC4_128_SHA,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, // #nosec G402
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		},
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(aCertFile, aKeyFile)
+			if nil != err {
+				return nil, err
+			}
+			return &cert, nil
 		},
 	} // #nosec G402
 	// server.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler))
@@ -249,7 +259,7 @@ func main() {
 			s := fmt.Sprintf("%s listening HTTP at :443", gMe)
 			log.Println(s)
 			apachelogger.Log("ReProx/main", s)
-			server443 := createServer443(handler)
+			server443 := createServer443(handler certFile, keyFile)
 			exit(fmt.Sprintf("%s: %v", gMe,
 				server443.ListenAndServeTLS(certFile, keyFile)))
 		}()
