@@ -18,16 +18,16 @@ import (
 )
 
 type (
-	//
+	// Structure to pair an external hostname with the internal machine:
 	tDestination struct {
 		destHost  string
 		destProxy *httputil.ReverseProxy
 	}
 
-	// list of proxied servers:
+	// List of proxied servers:
 	tBackendServers = map[string]tDestination
 
-	// `TProxyHandler` is the page handler for proxy requests
+	// Page handler for proxy requests:
 	TProxyHandler struct {
 		backendServers tBackendServers
 	}
@@ -35,21 +35,20 @@ type (
 
 // `createReverseProxy()` creates a new reverse proxy that routes
 // requests to the specified target.
-// The target is a URL string that represents the backend server to
-// which the requests will be forwarded.
+// The target is a URL string that represents the backend server the
+// requests to which will be forwarded.
 //
 // The function returns a pointer to an `httputil.ReverseProxy` instance.
 // If an error occurs during the parsing of the target URL, the function
 // logs the error and exits the program.
 //
 // Parameters:
-//
-//	`aTarget` (tDestination): The URL struct representing the backend
-//	server to which the requests will be forwarded.
+// - `aTarget` (tDestination): The URL struct representing the backend
+// server to which the requests will be forwarded.
 //
 // Return:
 // *httputil.ReverseProxy: A pointer to an `httputil.ReverseProxy` instance.
-func createReverseProxy(aDestination tDestination) (*httputil.ReverseProxy, error) {
+func createReverseProxy(aDestination *tDestination) (*httputil.ReverseProxy, error) {
 	if nil != aDestination.destProxy {
 		// there's already a running reverse proxy
 		return aDestination.destProxy, nil
@@ -70,35 +69,35 @@ func createReverseProxy(aDestination tDestination) (*httputil.ReverseProxy, erro
 // The function returns a pointer to a map of backend servers.
 // Each entry in the map contains a hostname and a proxy instance.
 //
-// TODO: The function reads the backend server configuration from a
-// `configFile` and populates the `backendServers` map accordingly.
+// The function reads the backend server configuration from
+// `aConfigFile` and populates the `backendServers` map accordingly.
 //
-// If the `configFile` is empty or does not exist, the function
-// populates the `backendServers` map with default values.
+// If the `aConfigFile` argument is empty or does not exist, the function
+// populates the returned map with default values.
 //
 // The function returns a pointer to the `backendServers` map.
 //
 // Parameters:
-//
-//	`aConfigFile` string - The path to the configuration file containing
-//
+// - `aConfigFile` string - The path to the configuration file with
 // the backend server URLs.
 //
 // Returns:
-//
-//	*tBackendServers - A pointer to a map of backend servers.
-func initBackendList( /*aConfigFile string*/ ) *tBackendServers {
+// - *tBackendServers - A pointer to a map of backend servers.
+func initBackendList(aConfigFile string) *tBackendServers {
+	if "" == aConfigFile {
+		return &tBackendServers{
+			"bla.mwat.de":      tDestination{"http://192.168.192.236:8181", nil},
+			"bla.mwat.de:80":   tDestination{"http://192.168.192.236:8181", nil},
+			"bla.mwat.de:443":  tDestination{"http://192.168.192.236:8181", nil},
+			"read.mwat.de":     tDestination{"http://192.168.192.236:8383", nil},
+			"read.mwat.de:80":  tDestination{"http://192.168.192.236:8383", nil},
+			"read.mwat.de:443": tDestination{"http://192.168.192.236:8383", nil},
+		}
+	}
 
 	//TODO: read from config file
 
-	return &tBackendServers{
-		"bla.mwat.de":      tDestination{"http://192.168.192.236:8181", nil},
-		"bla.mwat.de:80":   tDestination{"http://192.168.192.236:8181", nil},
-		"bla.mwat.de:443":  tDestination{"http://192.168.192.236:8181", nil},
-		"read.mwat.de":     tDestination{"http://192.168.192.236:8383", nil},
-		"read.mwat.de:80":  tDestination{"http://192.168.192.236:8383", nil},
-		"read.mwat.de:443": tDestination{"http://192.168.192.236:8383", nil},
-	}
+	return nil
 } // initBackendList()
 
 // `ServeHTTP()` is the main entry point for the reverse proxy server.
@@ -109,7 +108,7 @@ func initBackendList( /*aConfigFile string*/ ) *tBackendServers {
 // - `aWriter`: The `ResponseWriter` to write HTTP response headers and body.
 // - `aRequest`: The Request struct containing all the details of the
 // incoming HTTP request.
-func (ph TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Request) {
+func (ph *TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Request) {
 	// Check if a backend server is available for the requested host.
 	target, ok := ph.backendServers[aRequest.Host]
 	if !ok {
@@ -121,7 +120,7 @@ func (ph TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Re
 	}
 
 	// Create a new reverse proxy for the target backend server.
-	proxy, err := createReverseProxy(target)
+	proxy, err := createReverseProxy(&target)
 	if nil != err {
 		// If an error occurs while creating the reverse proxy,
 		// send a 500 Internal Server Error HTTP response.
@@ -139,22 +138,22 @@ func (ph TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Re
 } // ServeHTTP()
 
 // `NewProxyHandler()` creates a new instance of TProxyHandler.
-// It initialises the backendServers map with the list of available servers.
+// It initialises the internal backendServers map with the list of
+// available servers.
 //
 // Parameters:
-// - `aConfigFile` (string): The path to the configuration file containing
-// the backend server URLs.
-// If the file is empty or does not exist, the function populates the
-// backendServers map with default values.
+// - `aConfigFile` (string): The path to the configuration file
+// containing the backend server URLs.
+// If the file is empty or does not exist, the function populates
+// the backendServers map with default values.
 //
 // Returns:
 // - *TProxyHandler: A pointer to a new instance of TProxyHandler.
-func NewProxyHandler( /*aConfigFile string*/ ) *TProxyHandler {
-	result := &TProxyHandler{
-		backendServers: *initBackendList( /*aConfigFile string*/ ),
+func NewProxyHandler(aConfigFile string) *TProxyHandler {
+	bes := initBackendList(aConfigFile)
+	return &TProxyHandler{
+		backendServers: *bes,
 	}
-
-	return result
 } // NewProxyHandler()
 
 /* _EoF_ */
