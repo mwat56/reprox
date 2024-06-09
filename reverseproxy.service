@@ -1,0 +1,15 @@
+[Unit]
+Description=Hostname based Reverse Proxy
+Documentation=https://github.com/mwat56/reprox/
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/home/matthias/devel/Go/src/github.com/mwat56/reprox/
+ExecStart=/home/matthias/devel/Go/src/github.com/mwat56/reprox/bin/reverseProxy-linux-amd64 -listen=0
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
