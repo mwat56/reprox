@@ -49,13 +49,13 @@ var (
 // Returns:
 // - `*http.Server`: A pointer to the newly created and configured HTTP server.
 func createServ(aHandler http.Handler, aPort string) *http.Server {
-	if 0 == len(aPort) {
+	if "" == aPort {
 		aPort = ":80"
 	}
 
-	ctxTimeout, cancelTimeout := context.WithTimeout(
-		context.Background(), time.Second*10)
-	defer cancelTimeout()
+	// ctxTimeout, cancelTimeout := context.WithTimeout(
+	// 	context.Background(), time.Second << 3)
+	// defer cancelTimeout()
 
 	// We need a `server` reference to use it in `setup Signals()`
 	// and to set some reasonable timeouts:
@@ -64,9 +64,9 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 		Addr: aPort,
 
 		// Return the base context for incoming requests on this server:
-		BaseContext: func(net.Listener) context.Context {
-			return ctxTimeout
-		},
+		// BaseContext: func(net.Listener) context.Context {
+		// 	return ctxTimeout
+		// },
 
 		// Request handler to invoke:
 		Handler: aHandler,
@@ -79,16 +79,17 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 		IdleTimeout: 0,
 
 		// The amount of time allowed to read request headers:
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: time.Second << 1,
 
 		// The maximum duration for reading the entire request,
 		// including the body:
-		ReadTimeout: 10 * time.Second,
+		ReadTimeout: time.Second << 2,
 
 		// The maximum duration before timing out writes of the response:
-		// WriteTimeout: 10 * time.Second,
-		WriteTimeout: -1, // see whether this eliminates "i/o timeout HTTP/1.0"
+		WriteTimeout: -1, // disable
 	}
+
+	apachelogger.SetErrLog(server)
 	setupSignals(server)
 
 	return server
@@ -216,8 +217,7 @@ func setupSignals(aServer *http.Server) {
 		aServer.RegisterOnShutdown(cancel)
 
 		ctxTimeout, cancelTimeout := context.WithTimeout(
-			context.Background(),
-			time.Second*10,
+			context.Background(), time.Second << 3,
 		)
 		defer cancelTimeout()
 		if err := aServer.Shutdown(ctxTimeout); err != nil {
@@ -235,13 +235,11 @@ func main() {
 		wg       sync.WaitGroup
 	)
 
-	//TODO: implement INI parsing
-	ph := reprox.NewProxyHandler("" /*aConfigFile string*/)
+	ph := reprox.NewProxyHandler()
 
 	// setup the `ApacheLogger`:
 	handler := apachelogger.Wrap(ph,
-		fmt.Sprintf("%s.%s.log", "access", gMe),
-		fmt.Sprintf("%s.%s.log", "error", gMe))
+		reprox.AppSetup.AccessLog, reprox.AppSetup.ErrorLog)
 
 	wg.Add(1)
 	go func() { // HTTP server
