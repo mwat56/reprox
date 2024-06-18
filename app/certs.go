@@ -23,6 +23,22 @@ import (
 	"time"
 )
 
+// `isDirectory()` checks if the given path is a directory.
+//
+// Parameters:
+// aPath (string): The path to be checked.
+//
+// Returns:
+// bool: Returns true if the given path is a directory, false otherwise.
+func isDirectory(aPath string) bool {
+	fileInfo, err := os.Stat(aPath)
+	if err != nil {
+		return false
+	}
+
+	return fileInfo.IsDir()
+} // isDirectory()
+
 // `certConfDir()` returns the directory path where the configuration
 // files for the application are stored.
 // It uses `os.UserConfigDir()` to get the user's configuration directory.
@@ -31,13 +47,23 @@ import (
 // running executable using `filepath.Join()`.
 // This ensures that the configuration files are stored in a
 // predictable location for the user.
-//
-// NOTE: This implementation uses only the "happy path" i.e. all
-// possible errors are ignored!
-func certConfDir() string {
-	confDir, _ := os.UserConfigDir()
+func certConfDir() (rDir string) {
+	if 0 == os.Getuid() { // root user
+		rDir = filepath.Join("/etc/", filepath.Base(os.Args[0]))
+	} else {
+		confDir, _ := os.UserConfigDir()
+		rDir = filepath.Join(confDir, filepath.Base(os.Args[0]))
+	}
 
-	return filepath.Join(confDir, filepath.Base(os.Args[0]))
+	if isDirectory(rDir) {
+		return
+	}
+
+	if err := os.Mkdir(rDir, 0770); nil != err {
+		rDir, _ = os.UserConfigDir()
+	}
+
+	return
 } // certConfDir()
 
 // `certFilenames()` generates the filenames for the certificate
@@ -101,11 +127,12 @@ func generateTLS(aServername, aPath string) error {
 		return err
 	}
 
-	// build the filenames to use fr certificate and private key
+	// build the filenames to use for certificate and private key
 	certFilename, keyFilename := certFilenames(aServername, aPath)
 
 	// create the certificate's file
-	certOut, err = os.Create(certFilename)
+	certOut, err = os.OpenFile(certFilename,
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
 	if nil != err {
 		return err
 	}
@@ -118,7 +145,8 @@ func generateTLS(aServername, aPath string) error {
 	})
 
 	// create the key's file
-	keyOut, err = os.Create(keyFilename)
+	keyOut, err = os.OpenFile(keyFilename,
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
 	if nil != err {
 		return err
 	}
@@ -163,22 +191,24 @@ func generateTLS(aServername, aPath string) error {
 func certGet(aCertFile, aKeyFile, aServerName, aPath string) (rCertificate tls.Certificate, rErr error) {
 	var err error
 
+	rCertificate, err = tls.LoadX509KeyPair(aCertFile, aKeyFile)
+	if nil == err {
+		return
+	}
+
 	if "" == aPath {
 		aPath = certConfDir()
 	}
 
-	rCertificate, err = tls.LoadX509KeyPair(aCertFile, aKeyFile)
-	if nil != err {
-		e2 := generateTLS(aServerName, aPath)
-		if nil != e2 {
-			rErr = fmt.Errorf("%s: %w", err.Error(), e2)
-			return
-		}
-	} else {
+	e2 := generateTLS(aServerName, aPath)
+	if nil != e2 {
+		rErr = fmt.Errorf("%s: %w", err.Error(), e2)
 		return
 	}
 
+	// try again:
 	rCertificate, rErr = tls.LoadX509KeyPair(aCertFile, aKeyFile)
+
 	return
 } // certGet()
 
