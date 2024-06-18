@@ -1,0 +1,32 @@
+# Sample INI file for the reverse proxy
+
+
+[Default]
+	AccessLog = ./access.log
+	ErrorLog = ./error.log
+
+[Host1]
+	outside = "some1.example.com"
+	destURL = "http://123.168.123.234:8081"
+
+[Host2]
+	outside = "some1.example.com:80"
+	destURL = "http://123.168.123.234:8081"
+
+[Host3]
+	outside = "some1.example.com:443"
+	destURL = "http://123.168.123.234:8081"
+
+[Host4]
+	outside = "some2.example.com"
+	destURL = "http://123.168.123.234:8083"
+
+[Host5]
+	outside = "some2.example.com:80"
+	destURL = "http://123.168.123.234:8083"
+
+[Host6]
+	outside = "some2.example.com:443"
+	destURL = "http://123.168.123.234:8083"
+
+#_EoF_
