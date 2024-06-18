@@ -147,15 +147,6 @@ func createServer443(aHandler http.Handler, aCertificate tls.Certificate) *http.
 		MaxVersion:               tls.VersionTLS12,
 		MinVersion:               tls.VersionTLS10,
 		PreferServerCipherSuites: true,
-		/*
-			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-				cert, err := tls.LoadX509KeyPair(aCertFile, aKeyFile)
-				if nil != err {
-					return nil, err
-				}
-				return &cert, nil
-			},
-		*/
 	} // #nosec G402
 	// server.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 
@@ -217,7 +208,7 @@ func setupSignals(aServer *http.Server) {
 		aServer.RegisterOnShutdown(cancel)
 
 		ctxTimeout, cancelTimeout := context.WithTimeout(
-			context.Background(), time.Second << 3,
+			context.Background(), time.Second<<3,
 		)
 		defer cancelTimeout()
 		if err := aServer.Shutdown(ctxTimeout); err != nil {
@@ -231,8 +222,7 @@ func setupSignals(aServer *http.Server) {
 */
 func main() {
 	var (
-		certPath string
-		wg       sync.WaitGroup
+		wg sync.WaitGroup
 	)
 
 	ph := reprox.NewProxyHandler()
@@ -250,7 +240,9 @@ func main() {
 		apachelogger.Log("ReProx/main", s)
 
 		server80 := createServer80(handler)
-		exit(fmt.Sprintf("%s: %v", gMe, server80.ListenAndServe()))
+		if err := server80.ListenAndServe(); nil != err {
+			exit(fmt.Sprintf("%s:80 %v", gMe, err))
+		}
 	}()
 
 	wg.Add(1)
@@ -262,23 +254,16 @@ func main() {
 		apachelogger.Log("ReProx/main", s)
 
 		serverName := "private.proxy"
+		certPath := certConfDir()
 		certFile, keyFile := certFilenames(serverName, certPath)
-		certificate, err := certGet(certFile, keyFile, serverName, "")
+		certificate, err := certGet(certFile, keyFile, serverName, certPath)
 		if nil != err {
-			s = fmt.Sprintf("%s: %v", gMe, err)
-			log.Println(s)
-			apachelogger.Err("ReProx/main", s)
-			runtime.Gosched() // let the logger write
-			return
+			exit(fmt.Sprintf("%s:443 %v", gMe, err))
 		}
 
 		server443 := createServer443(handler, certificate)
-		err = server443.ListenAndServeTLS(certFile, keyFile)
-		if nil != err {
-			s = fmt.Sprintf("%s: %v", gMe, err)
-			log.Println(s)
-			apachelogger.Err("ReProx/main", s)
-			runtime.Gosched() // let the logger write
+		if err := server443.ListenAndServeTLS(certFile, keyFile); nil != err {
+			exit(fmt.Sprintf("%s:443 %v", gMe, err))
 		}
 	}()
 
