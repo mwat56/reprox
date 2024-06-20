@@ -22,9 +22,10 @@ import (
 // If the directory does not yet exist, it is created with permissions 0770.
 //
 // Returns:
-// - string: The directory path as a string.
+// - string: The directory path to use for application-specific
+// configuration files.
 //
-// NOTE: This function is Linux-specific and only considers only the
+// NOTE: This function is Linux-specific and considers only the
 // "happy path" (i.e. no proper error handling).
 func ConfDir() (rDir string) {
 	if 0 == os.Getuid() { // root user
@@ -34,7 +35,7 @@ func ConfDir() (rDir string) {
 		rDir = filepath.Join(confDir, filepath.Base(os.Args[0]))
 	}
 
-	if isDirectory(rDir) {
+	if IsDirectory(rDir) {
 		return
 	}
 
@@ -67,14 +68,14 @@ func Exists(aFile string) bool {
 	return (!fileInfo.IsDir())
 } // Exists()
 
-// `isDirectory()` checks whether the given path is a directory.
+// `IsDirectory()` checks whether the given path is a directory.
 //
 // Parameters:
 // - `aPath` (string): The path to be checked.
 //
 // Returns:
 // - bool: Returns `true` if the given path is a directory, `false` otherwise.
-func isDirectory(aPath string) bool {
+func IsDirectory(aPath string) bool {
 	fileInfo, err := os.Stat(aPath)
 	if nil == err {
 		return fileInfo.IsDir()
