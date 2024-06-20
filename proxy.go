@@ -38,7 +38,7 @@ type (
 // server to which the requests will be forwarded.
 //
 // Return:
-// *httputil.ReverseProxy: A pointer to an `httputil.ReverseProxy` instance.
+// - *httputil.ReverseProxy: A pointer to an `httputil.ReverseProxy` instance.
 func createReverseProxy(aDestination *tDestination) (*httputil.ReverseProxy, error) {
 	if nil != aDestination.destProxy {
 		// there's already a running reverse proxy
@@ -69,7 +69,7 @@ func (ph *TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.R
 	if !ok {
 		msg := fmt.Sprintf("Backend server %q not found", aRequest.Host)
 		apachelogger.Err("ReProx/ServeHTTP", msg)
-		// If no backend server is found, send a 404 Not Found HTTP response.
+		// If no backend server is found, send a 404 Not Found HTTP response
 		http.Error(aWriter, msg, http.StatusNotFound)
 		return
 	}
