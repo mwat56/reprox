@@ -23,49 +23,6 @@ import (
 	"time"
 )
 
-// `isDirectory()` checks if the given path is a directory.
-//
-// Parameters:
-// aPath (string): The path to be checked.
-//
-// Returns:
-// bool: Returns true if the given path is a directory, false otherwise.
-func isDirectory(aPath string) bool {
-	fileInfo, err := os.Stat(aPath)
-	if err != nil {
-		return false
-	}
-
-	return fileInfo.IsDir()
-} // isDirectory()
-
-// `certConfDir()` returns the directory path where the configuration
-// files for the application are stored.
-// It uses `os.UserConfigDir()` to get the user's configuration directory.
-//
-// The function then joins this directory with the base name of the
-// running executable using `filepath.Join()`.
-// This ensures that the configuration files are stored in a
-// predictable location for the user.
-func certConfDir() (rDir string) {
-	if 0 == os.Getuid() { // root user
-		rDir = filepath.Join("/etc/", filepath.Base(os.Args[0]))
-	} else {
-		confDir, _ := os.UserConfigDir()
-		rDir = filepath.Join(confDir, filepath.Base(os.Args[0]))
-	}
-
-	if isDirectory(rDir) {
-		return
-	}
-
-	if err := os.Mkdir(rDir, 0770); nil != err {
-		rDir, _ = os.UserConfigDir()
-	}
-
-	return
-} // certConfDir()
-
 // `certFilenames()` generates the filenames for the certificate
 // and key files.
 // It takes two parameters: `aServername` and `aPath`.
@@ -78,7 +35,7 @@ func certFilenames(aServername, aPath string) (string, string) {
 		aServername = filepath.Base(os.Args[0])
 	}
 	if "" == aPath {
-		aPath = certConfDir()
+		aPath = ConfDir()
 	}
 
 	return fmt.Sprintf("%s/%s.cert", aPath, aServername),
@@ -197,7 +154,7 @@ func certGet(aCertFile, aKeyFile, aServerName, aPath string) (rCertificate tls.C
 	}
 
 	if "" == aPath {
-		aPath = certConfDir()
+		aPath = ConfDir()
 	}
 
 	e2 := generateTLS(aServerName, aPath)

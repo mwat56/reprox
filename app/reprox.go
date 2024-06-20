@@ -254,7 +254,7 @@ func main() {
 		apachelogger.Log("ReProx/main", s)
 
 		serverName := "private.proxy"
-		certPath := certConfDir()
+		certPath := ConfDir()
 		certFile, keyFile := certFilenames(serverName, certPath)
 		certificate, err := certGet(certFile, keyFile, serverName, certPath)
 		if nil != err {
