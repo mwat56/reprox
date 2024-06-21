@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/mwat56/apachelogger v1.6.4
 	github.com/mwat56/ini v1.6.3
+	golang.org/x/sys v0.21.0
 )
 
 replace (
