@@ -89,7 +89,7 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 		WriteTimeout: -1, // disable
 	}
 
-	apachelogger.SetErrLog(server)
+	apachelogger.SetErrorLog(server)
 	setupSignals(server)
 
 	return server
