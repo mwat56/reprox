@@ -6,7 +6,7 @@ require (
 	github.com/mwat56/apachelogger v1.7.0
 	github.com/mwat56/ini v1.9.0
 	github.com/mwat56/sourceerror v0.2.1
-	golang.org/x/sys v0.22.0
+	golang.org/x/sys v0.28.0
 )
 
 replace (
