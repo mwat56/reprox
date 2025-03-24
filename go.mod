@@ -1,12 +1,14 @@
 module github.com/mwat56/reprox
 
-go 1.22
+go 1.23.0
+
+toolchain go1.23.5
 
 require (
 	github.com/mwat56/apachelogger v1.7.0
 	github.com/mwat56/ini v1.9.0
 	github.com/mwat56/sourceerror v0.2.1
-	golang.org/x/sys v0.28.0
+	golang.org/x/sys v0.31.0
 )
 
 replace (
