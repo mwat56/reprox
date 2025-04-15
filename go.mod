@@ -6,9 +6,9 @@ toolchain go1.23.5
 
 require (
 	github.com/mwat56/apachelogger v1.7.0
-	github.com/mwat56/ini v1.9.0
+	github.com/mwat56/ratelimit v0.2.1
 	github.com/mwat56/sourceerror v0.2.1
-	golang.org/x/sys v0.31.0
+	golang.org/x/sys v0.32.0
 )
 
 replace (
@@ -20,6 +20,7 @@ replace (
 	github.com/mwat56/jffs => ../jffs
 	github.com/mwat56/pageview => ../pageview
 	github.com/mwat56/passlist => ../passlist
+	github.com/mwat56/ratelimit => ../ratelimit
 	github.com/mwat56/screenshot => ../screenshot
 	github.com/mwat56/sessions => ../sessions
 	github.com/mwat56/uploadhandler => ../uploadhandler

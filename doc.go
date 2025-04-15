@@ -1,9 +1,10 @@
 /*
 Package `reprox` implements a hostname based reverse proxy server.
 
-	Copyright © 2024 M.Watermann, 10247 Berlin, Germany
-					All rights reserved
-				EMail : <support@mwat.de>
+Copyright © 2024. 2025 M.Watermann, 10247 Berlin, Germany
+
+	    All rights reserved
+	EMail : <support@mwat.de>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
