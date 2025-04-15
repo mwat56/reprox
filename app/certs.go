@@ -1,11 +1,12 @@
 /*
-Copyright © 2024  M.Watermann, 10247 Berlin, Germany
+Copyright © 2024, 2025  M.Watermann, 10247 Berlin, Germany
 
 	All rights reserved
 	EMail : <support@mwat.de>
 */
 package main
 
+//lint:file-ignore ST1005 - I prefer Capitalisation
 //lint:file-ignore ST1017 - I prefer Yoda conditions
 
 import (
@@ -21,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mwat56/reprox"
 )
 
 // `certFilenames()` generates the filenames for the certificate
@@ -35,12 +38,15 @@ func certFilenames(aServername, aPath string) (string, string) {
 		aServername = filepath.Base(os.Args[0])
 	}
 	if "" == aPath {
-		aPath = ConfDir()
+		aPath = reprox.ConfDir()
+	} else {
+		// make sure `aPath` is absolute
+		aPath, _ = filepath.Abs(aPath)
 	}
 
 	return fmt.Sprintf("%s/%s.cert", aPath, aServername),
 		fmt.Sprintf("%s/%s.key", aPath, aServername)
-} // filenames()
+} // certFilenames()
 
 // `generateTLS()` generates a self-signed certificate and key pair.
 // It takes two parameters: `aServername` and `aPath`.
@@ -49,79 +55,81 @@ func certFilenames(aServername, aPath string) (string, string) {
 // The function returns an error if any occurs during the generation process.
 func generateTLS(aServername, aPath string) error {
 	var (
-		certBytes  []byte
-		certOut    *os.File
-		err        error
-		keyBytes   []byte
-		keyOut     *os.File
-		privateKey *ecdsa.PrivateKey
+		certBytes    []byte
+		certOut      *os.File
+		err          error
+		keyBytes     []byte
+		keyOut       *os.File
+		privateKey   *ecdsa.PrivateKey
+		serialNumber *big.Int
 	)
 	// Generate a private key
-	privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if nil != err {
-		return err
+	if privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); nil != err {
+		return fmt.Errorf("Failed to generate private key: %v", err)
+	}
+
+	if serialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128)); nil != err {
+		return fmt.Errorf("Failed to generate serial number: %v", err)
 	}
 
 	// Create a certificate template
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		BasicConstraintsValid: true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		// KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		NotBefore:    time.Now(),
+		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{"private server"},
-			CommonName:   aServername,
+			CommonName:   "localhost",
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
 	}
 
 	// Generate a self-signed certificate
-	certBytes, err = x509.CreateCertificate(rand.Reader,
-		&template, &template, &privateKey.PublicKey, privateKey)
-	if nil != err {
-		return err
+	if certBytes, err = x509.CreateCertificate(rand.Reader,
+		&template, &template, &privateKey.PublicKey, privateKey); nil != err {
+		return fmt.Errorf("Failed to create certificate: %v", err)
 	}
 
 	// build the filenames to use for certificate and private key
 	certFilename, keyFilename := certFilenames(aServername, aPath)
 
 	// create the certificate's file
-	certOut, err = os.OpenFile(certFilename,
-		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
-	if nil != err {
-		return err
+	if certOut, err = os.OpenFile(certFilename,
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660); nil != err {
+		return fmt.Errorf("Failed to create certificate file: %v", err)
 	}
 	defer certOut.Close()
 
 	// write the certificate's PEM encoding to `certOut`
-	pem.Encode(certOut, &pem.Block{
+	if err := pem.Encode(certOut, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: certBytes,
-	})
+	}); nil != err {
+		return fmt.Errorf("Failed to write data to %s: %v", certFilename, err)
+	}
 
 	// create the key's file
-	keyOut, err = os.OpenFile(keyFilename,
-		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
-	if nil != err {
-		return err
+	if keyOut, err = os.OpenFile(keyFilename,
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660); nil != err {
+		return fmt.Errorf("Failed to open key.pem for writing: %v", err)
 	}
 	defer keyOut.Close()
 
 	// convert the private key to PKCS #8, ASN.1 DER form
-	keyBytes, err = x509.MarshalPKCS8PrivateKey(privateKey)
-	if nil != err {
-		return err
+	if keyBytes, err = x509.MarshalPKCS8PrivateKey(privateKey); nil != err {
+		return fmt.Errorf("Unable to marshal private key: %v", err)
 	}
 
 	// write the key's PEM encoding to `keyOut`
-	err = pem.Encode(keyOut, &pem.Block{
-		Type:  "PRIVATE KEY",
+	if err = pem.Encode(keyOut, &pem.Block{
+		Type:  "EC PRIVATE KEY",
 		Bytes: keyBytes,
-	})
-	if nil != err {
-		return err
+	}); nil != err {
+		return fmt.Errorf("Failed to write data to key.pem: %v", err)
 	}
 
 	return nil
@@ -154,7 +162,7 @@ func certGet(aCertFile, aKeyFile, aServerName, aPath string) (rCertificate tls.C
 	}
 
 	if "" == aPath {
-		aPath = ConfDir()
+		aPath = reprox.ConfDir()
 	}
 
 	e2 := generateTLS(aServerName, aPath)
