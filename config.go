@@ -39,21 +39,25 @@ type (
 
 	// `tProxyConfig` holds the configuration for the reverse proxy.
 	tProxyConfig struct {
-		sync.RWMutex          // For thread-safe access to configuration
-		hostMappings tHostMap // Maps hostnames to their configurations
-		AccessLog    string   // Path to access log file
-		ErrorLog     string   // Path to error log file
-		TLSCertFile  string   // Path to TLS certificate file
-		TLSKeyFile   string   // Path to TLS private key file
+		sync.RWMutex               // For thread-safe access to configuration
+		hostMappings tHostMap      // Maps hostnames to their configurations
+		AccessLog    string        // Path to access log file
+		ErrorLog     string        // Path to error log file
+		TLSCertFile  string        // Path to TLS certificate file
+		TLSKeyFile   string        // Path to TLS private key file
+		MaxRequests  uint          // Maximum number of requests allowed in the time window
+		WindowSize   time.Duration // Time window in seconds for rate limiting
 	}
 
 	// `tConfigFile` represents the JSON configuration file format.
 	tConfigFile struct {
-		Hosts     map[string]string `json:"hosts"`
-		AccessLog string            `json:"access_log,omitempty"`
-		ErrorLog  string            `json:"error_log,omitempty"`
-		TLSCert   string            `json:"tls_cert,omitempty"`
-		TLSKey    string            `json:"tls_key,omitempty"`
+		Hosts       map[string]string `json:"hosts"`
+		AccessLog   string            `json:"access_log,omitempty"`
+		ErrorLog    string            `json:"error_log,omitempty"`
+		TLSCert     string            `json:"tls_cert,omitempty"`
+		TLSKey      string            `json:"tls_key,omitempty"`
+		MaxRequests uint              `json:"max_requests,omitempty"`
+		WindowSize  uint              `json:"window_size,omitempty"`
 	}
 )
 
@@ -193,14 +197,17 @@ func (pc *tProxyConfig) loadConfigFromFile(aFilename string) error {
 		conf.ErrorLog = fmt.Sprintf("%s.%s.log", "error", gMe)
 	}
 
+	// Set rate limiting defaults if not specified
+	if conf.MaxRequests <= 0 {
+		conf.MaxRequests = 100 // default to 100 requests
+	}
+	if conf.WindowSize <= 0 {
+		conf.WindowSize = 60 // default to 60 seconds
+	}
+
 	// Update logs and TLS first (atomic operation)
 	pc.Lock()
 	defer pc.Unlock()
-
-	pc.AccessLog = absDir("", conf.AccessLog)
-	pc.ErrorLog = absDir("", conf.ErrorLog)
-	pc.TLSCertFile = absDir("", conf.TLSCert)
-	pc.TLSKeyFile = absDir("", conf.TLSKey)
 
 	// Update host mappings
 	tempMapping := make(tHostMap)
@@ -216,6 +223,13 @@ func (pc *tProxyConfig) loadConfigFromFile(aFilename string) error {
 		tempMapping[host] = tHostConfig{targetURL, nil}
 	}
 	pc.hostMappings = tempMapping
+
+	pc.AccessLog = absDir("", conf.AccessLog)
+	pc.ErrorLog = absDir("", conf.ErrorLog)
+	pc.TLSCertFile = absDir("", conf.TLSCert)
+	pc.TLSKeyFile = absDir("", conf.TLSKey)
+	pc.MaxRequests = conf.MaxRequests
+	pc.WindowSize = time.Duration(conf.WindowSize) * time.Second
 
 	return nil
 } // loadConfigFromFile()
