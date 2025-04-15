@@ -1,0 +1,12 @@
+{
+	"hosts": {
+		"api.example.com": "http://10.0.0.101:8080",
+		"app.example.com": "http://10.0.0.102:3000"
+	},
+	"access_log": "./access.log",
+	"error_log": "./error.log",
+	"tls_cert": "/etc/ssl/certs/proxy.pem",
+	"tls_key": "/etc/ssl/private/proxy.key",
+	"max_requests": 100,
+	"window_size": 60
+}
