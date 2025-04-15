@@ -1,7 +1,7 @@
 /*
-Copyright © 2024  M.Watermann, 10247 Berlin, Germany
+Copyright © 2024, 2025  M.Watermann, 10247 Berlin, Germany
 
-		All rights reserved
+	    All rights reserved
 	EMail : <support@mwat.de>
 */
 package main
@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/mwat56/apachelogger"
+	"github.com/mwat56/ratelimit"
 	"github.com/mwat56/reprox"
 )
 
@@ -42,20 +43,15 @@ var (
 // SIGINT or SIGTERM signals.
 //
 // Parameters:
-// - `aHandler` (http.Handler): The handler to be invoked for each
-// request received by the server.
-// - `aPort` (string): The TCP address for the server to listen on.
+//   - `aHandler` (http.Handler): The handler to be invoked for each request received by the server.
+//   - `aPort` (string): The TCP address for the server to listen on.
 //
 // Returns:
-// - `*http.Server`: A pointer to the newly created and configured HTTP server.
+//   - `*http.Server`: A pointer to the newly created and configured HTTP server.
 func createServ(aHandler http.Handler, aPort string) *http.Server {
 	if "" == aPort {
 		aPort = ":80"
 	}
-
-	// ctxTimeout, cancelTimeout := context.WithTimeout(
-	// 	context.Background(), time.Second << 3)
-	// defer cancelTimeout()
 
 	// We need a `server` reference to use it in `setup Signals()`
 	// and to set some reasonable timeouts:
@@ -105,13 +101,11 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 // security, following Mozilla's SSL Configuration Generator recommendations.
 //
 // Parameters:
-// - `aHandler`: The handler to be invoked for each request received
-// by the server.
-// - `aCertificate`: The TLS certificate to be used for secure
-// communication.
+//   - `aHandler`: The handler to be invoked for each request received  by the server.
+//   - `aCertificate`: The TLS certificate to be used for secure communication.
 //
 // Returns:
-// - `*http.Server`: A pointer to the newly created and configured HTTPS server.
+//   - `*http.Server`: A pointer to the newly created and configured HTTPS server.
 func createServer443(aHandler http.Handler, aCertificate tls.Certificate) *http.Server {
 	result := createServ(aHandler, ":443")
 
@@ -161,11 +155,12 @@ func createServer443(aHandler http.Handler, aCertificate tls.Certificate) *http.
 // SIGINT or SIGTERM signals.
 //
 // Parameters:
-// - `aHandler` (http.Handler): The handler to be invoked for each
+//   - `aHandler` (http.Handler): The handler to be invoked for each
+//
 // request received by the server.
 //
 // Returns:
-// - `*http.Server`: A pointer to the newly created and configured HTTP server.
+//   - `*http.Server`: A pointer to the newly created and configured HTTP server.
 func createServer80(aHandler http.Handler) *http.Server {
 	return createServ(aHandler, ":80")
 } // createServer80()
@@ -173,8 +168,7 @@ func createServer80(aHandler http.Handler) *http.Server {
 // `exit()` logs `aMessage` and terminate the program.
 //
 // Parameters:
-//
-//	`aMessage` (string): The message to be logged and displayed.
+//   - `aMessage`: The message to be logged and displayed.
 func exit(aMessage string) {
 	apachelogger.Err("ReProx/main", aMessage)
 	runtime.Gosched() // let the logger write
@@ -186,8 +180,7 @@ func exit(aMessage string) {
 // function to be called when the context is canceled.
 //
 // Parameters:
-//
-//	`aServer` *http.Server - The HTTP server to be gracefully shut down.
+//   - `aServer`: The HTTP server to be gracefully shut down.
 func setupSignals(aServer *http.Server) {
 	// handle `CTRL-C` and `kill(15)`:
 	c := make(chan os.Signal, 2)
@@ -221,15 +214,65 @@ func setupSignals(aServer *http.Server) {
 - @title Main function for the reverse proxy server.
 */
 func main() {
-	var (
-		wg sync.WaitGroup
-	)
+	configFile := filepath.Join(reprox.ConfDir(), gMe+".json")
+	proxyConfig, err := reprox.LoadConfig(configFile)
+	if nil != err {
+		log.Fatalf("Configuration load error: %v", err)
+	}
 
-	ph := reprox.NewProxyHandler()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start the config watcher
+	go reprox.WatchConfigFile(ctx, proxyConfig, configFile, 30*time.Second)
+
+	// Create a new proxy handler with the configuration
+	ph := reprox.NewProxyHandler(proxyConfig)
 
 	// setup the `ApacheLogger`:
-	handler := apachelogger.Wrap(ph,
-		reprox.AppSetup.AccessLog, reprox.AppSetup.ErrorLog)
+	handler := apachelogger.Wrap(ph, proxyConfig.AccessLog, proxyConfig.ErrorLog)
+
+	// include rate limiting
+	handler, getMetrics := ratelimit.Wrap(handler, proxyConfig.MaxRequests, proxyConfig.WindowSize)
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func(aCtx context.Context) { // periodically log metrics
+		defer wg.Done()
+
+		var (
+			metrics   ratelimit.TMetrics
+			prevTotal uint64
+			msg       string
+		)
+		ticker := time.NewTicker(proxyConfig.WindowSize * 2)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-aCtx.Done():
+				apachelogger.Err("ReProx/main", aCtx.Err().Error())
+				return
+
+			case <-ticker.C:
+				metrics = getMetrics()
+				if prevTotal != metrics.TotalRequests {
+					prevTotal = metrics.TotalRequests
+					msg = fmt.Sprintf("Rate Limiter Metrics:\n"+
+						"Total Requests: %d\n"+
+						"Blocked Requests: %d\n"+
+						"Active Clients: %d\n"+
+						"Cleanup Interval: %v\n",
+						metrics.TotalRequests,
+						metrics.BlockedRequests,
+						metrics.ActiveClients,
+						metrics.CleanupDuration)
+					apachelogger.Log("ReProx/main", msg)
+				}
+			}
+		}
+	}(ctx)
 
 	wg.Add(1)
 	go func() { // HTTP server
@@ -241,31 +284,39 @@ func main() {
 
 		server80 := createServer80(handler)
 		if err := server80.ListenAndServe(); nil != err {
+			cancel()
 			exit(fmt.Sprintf("%s:80 %v", gMe, err))
 		}
 	}()
 
-	wg.Add(1)
-	go func() { // HTTPS server
-		defer wg.Done()
+	if ("" != proxyConfig.TLSCertFile) && ("" != proxyConfig.TLSKeyFile) {
+		wg.Add(1)
+		go func() { // HTTPS server
+			defer wg.Done()
+			if "" == proxyConfig.TLSCertFile {
+				if err := generateTLS("", ""); nil != err {
+					cancel()
+					exit(fmt.Sprintf("%s:443 %v", gMe, err))
+				}
+			}
 
-		s := fmt.Sprintf("%s listening HTTPS at :443", gMe)
-		log.Println(s)
-		apachelogger.Log("ReProx/main", s)
+			certificate, err := tls.LoadX509KeyPair(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile)
+			if nil != err {
+				cancel()
+				exit(fmt.Sprintf("%s:443 %v", gMe, err))
+			}
 
-		serverName := "private.proxy"
-		certPath := ConfDir()
-		certFile, keyFile := certFilenames(serverName, certPath)
-		certificate, err := certGet(certFile, keyFile, serverName, certPath)
-		if nil != err {
-			exit(fmt.Sprintf("%s:443 %v", gMe, err))
-		}
+			s := fmt.Sprintf("%s listening HTTPS at :443", gMe)
+			log.Println(s)
+			apachelogger.Log("ReProx/main", s)
 
-		server443 := createServer443(handler, certificate)
-		if err := server443.ListenAndServeTLS(certFile, keyFile); nil != err {
-			exit(fmt.Sprintf("%s:443 %v", gMe, err))
-		}
-	}()
+			server443 := createServer443(handler, certificate)
+			if err := server443.ListenAndServeTLS(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile); nil != err {
+				cancel()
+				exit(fmt.Sprintf("%s:443 %v", gMe, err))
+			}
+		}()
+	}
 
 	wg.Wait()
 } // main()
