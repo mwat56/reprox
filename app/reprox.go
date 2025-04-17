@@ -214,6 +214,12 @@ func setupSignals(aServer *http.Server) {
 - @title Main function for the reverse proxy server.
 */
 func main() {
+	// First check whether we're actually running as root:
+	if 0 != os.Getuid() {
+		exit("\nroot privileges required to bind to ports 80 and 443; terminating ...")
+	}
+
+	// Load the configuration
 	configFile := filepath.Join(reprox.ConfDir(), gMe+".json")
 	proxyConfig, err := reprox.LoadConfig(configFile)
 	if nil != err {
@@ -293,17 +299,18 @@ func main() {
 		wg.Add(1)
 		go func() { // HTTPS server
 			defer wg.Done()
-			if "" == proxyConfig.TLSCertFile {
-				if err := generateTLS("", ""); nil != err {
-					cancel()
-					exit(fmt.Sprintf("%s:443 %v", gMe, err))
-				}
-			}
+			// if "" == proxyConfig.TLSCertFile {
+			// 	if err := generateTLS("", ""); nil != err {
+			// 		cancel()
+			// 		exit(fmt.Sprintf("%s:443 %v", gMe, err))
+			// 	}
+			// }
 
 			certificate, err := tls.LoadX509KeyPair(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile)
 			if nil != err {
-				cancel()
-				exit(fmt.Sprintf("%s:443 %v", gMe, err))
+				// cancel()
+				// exit(fmt.Sprintf("%s:443 %v", gMe, err))
+				return
 			}
 
 			s := fmt.Sprintf("%s listening HTTPS at :443", gMe)
@@ -319,6 +326,7 @@ func main() {
 	}
 
 	wg.Wait()
+	exit(fmt.Sprintf("%s: %s", gMe, "terminating ..."))
 } // main()
 
 /* _EoF_ */
