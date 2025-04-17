@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -157,37 +156,50 @@ func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
 	return nil
 } // getTarget()
 
-// `loadConfigFromFile()` loads the configuration from a JSON file.
+// `loadConfigFile()` loads the configuration from a JSON file.
 //
 // Parameters:
-//   - `aFilename`: The path to the JSON configuration file.
+//   - `aFilename`: The path/name of the JSON configuration file.
 //
 // Returns:
 //   - `error`: An error, if the configuration could not be loaded.
-func (pc *tProxyConfig) loadConfigFromFile(aFilename string) error {
-	info, err := os.Stat(aFilename)
+func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
+	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
+		err = fmt.Errorf("Failed to accessed config file '%s': %w", aFilename, err)
+		apachelogger.Err("ReProx/loadConfigFile", err.Error())
 		return err
+	}
+	if fileInfo.IsDir() {
+		msg := fmt.Sprintf("Configuration name points to a directory: %s", aFilename)
+		apachelogger.Err("ReProx/loadConfigFile", msg)
+		return errors.New(msg)
 	}
 
 	// Verify file permissions
-	if mode := info.Mode().Perm(); 0 != mode&0077 {
-		// return fmt.Errorf("Insecure file permissions: %#o (want 600)", mode)
-		log.Printf("Warning: Insecure file permissions: %#o (want 600)", mode)
+	if mode := fileInfo.Mode().Perm(); 0 != mode&0077 {
+		msg := fmt.Sprintf("Warning: Insecure file permissions: %#o (want 600)", mode)
+		apachelogger.Log("ReProx/loadConfigFile", msg)
 	}
 
 	configData, err := os.ReadFile(aFilename)
 	if nil != err {
-		return fmt.Errorf("Failed to read config file: %w", err)
+		err = fmt.Errorf("Failed to read config file '%s': %w", aFilename, err)
+		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+		return err
 	}
 
 	var conf tConfigFile
 	if err = json.Unmarshal(configData, &conf); nil != err {
-		return fmt.Errorf("Invalid JSON configuration: %w", err)
+		err = fmt.Errorf("Failed to parse config file: '%s': %w", aFilename, err)
+		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+		return err
 	}
 
 	if 0 == len(conf.Hosts) {
-		return errors.New("missing host mappings in configuration file")
+		err = fmt.Errorf("Missing host mappings in config file: '%s'", aFilename)
+		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+		return err
 	}
 
 	if "" == conf.AccessLog {
@@ -214,10 +226,14 @@ func (pc *tProxyConfig) loadConfigFromFile(aFilename string) error {
 	targetURL := &url.URL{}
 	for host, target := range conf.Hosts {
 		if targetURL, err = url.Parse(target); nil != err {
-			return fmt.Errorf("Invalid target URL for %s: %w", host, err)
+			err = fmt.Errorf("Invalid target URL in config file: '%s': %w", aFilename, err)
+			apachelogger.Err("ReProx/loadConfigFile", err.Error())
+			return err
 		}
 		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
-			return fmt.Errorf("Invalid target URL.scheme for %s: %w", targetURL.Scheme, err)
+			err = fmt.Errorf("Invalid target URL.scheme for '%s'", targetURL.Scheme)
+			apachelogger.Err("ReProx/loadConfigFile", err.Error())
+			return err
 		}
 
 		tempMapping[host] = tHostConfig{targetURL, nil}
@@ -232,7 +248,84 @@ func (pc *tProxyConfig) loadConfigFromFile(aFilename string) error {
 	pc.WindowSize = time.Duration(conf.WindowSize) * time.Second
 
 	return nil
-} // loadConfigFromFile()
+} // loadConfigFile()
+
+// `SaveConfig()` writes the current configuration to a JSON file.
+//
+// Parameters:
+//   - `aFilename`: The path/name of the JSON configuration file.
+//
+// Returns:
+//   - `error`: An error if the configuration could not be saved.
+func (pc *tProxyConfig) SaveConfig(aFilename string) error {
+	pc.RLock()
+	defer pc.RUnlock()
+
+	// Convert internal host mappings to the format used in the config file
+	hosts := make(map[string]string)
+	for host, config := range pc.hostMappings {
+		hosts[host] = config.target.String()
+	}
+
+	// Create config file structure
+	conf := tConfigFile{
+		Hosts:       hosts,
+		AccessLog:   pc.AccessLog,
+		ErrorLog:    pc.ErrorLog,
+		TLSCert:     pc.TLSCertFile,
+		TLSKey:      pc.TLSKeyFile,
+		MaxRequests: pc.MaxRequests,
+		WindowSize:  uint(pc.WindowSize.Seconds()),
+	}
+
+	// Convert to JSON with indentation
+	configData, err := json.MarshalIndent(conf, "", "\t")
+	if nil != err {
+		err = fmt.Errorf("Failed to marshal configuration to JSON: '%s': %w", aFilename, err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+
+	// Create temporary file in the same directory
+	dir := filepath.Dir(aFilename)
+	tmpFile, err := os.CreateTemp(dir, "*.tmp")
+	if nil != err {
+		err = fmt.Errorf("Failed to create temporary file: %w", err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName) // Clean up in case of failure
+
+	// Write configuration to temporary file
+	if _, err = tmpFile.Write(configData); nil != err {
+		tmpFile.Close()
+		err = fmt.Errorf("Failed to write config to temporary file '%s': %w", tmpName, err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+	if err = tmpFile.Close(); nil != err {
+		err = fmt.Errorf("Failed to close temporary file '%s': %w", tmpName, err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+
+	// Set file permissions to match `loadConfigFile()` expectations
+	if err = os.Chmod(tmpName, 0600); nil != err {
+		err = fmt.Errorf("Failed to set file permissions for '%s': %w", tmpName, err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+
+	// Atomically replace the old config file
+	if err = os.Rename(tmpName, aFilename); nil != err {
+		err = fmt.Errorf("Failed to save configuration file '%s': %w", aFilename, err)
+		apachelogger.Err("ReProx/SaveConfig", err.Error())
+		return err
+	}
+
+	return nil
+} // SaveConfig()
 
 // --------------------------------------------------------------------------
 
@@ -271,7 +364,7 @@ func ConfDir() (rDir string) {
 // `LoadConfig()` loads the configuration from a JSON file.
 //
 // Parameters:
-//   - `aFilename`: The path to the JSON configuration file.
+//   - `aFilename`: The path/name of the JSON configuration file.
 //
 // Returns:
 //   - `*tProxyConfig`: A pointer to the loaded configuration.
@@ -281,7 +374,7 @@ func LoadConfig(aFilename string) (*tProxyConfig, error) {
 		hostMappings: make(tHostMap),
 	}
 
-	if err := result.loadConfigFromFile(aFilename); nil != err {
+	if err := result.loadConfigFile(aFilename); nil != err {
 		return nil, err
 	}
 
@@ -328,14 +421,23 @@ func NewReverseProxy(aConfig *tProxyConfig) *httputil.ReverseProxy {
 // Parameters:
 //   - `aCtx`: Context for cancellation.
 //   - `aPc`: The proxy configuration to update.
-//   - `aFilename`: Path to the configuration file to watch.
+//   - `aFilename`: Path/name of the configuration file to watch.
 //   - `aInterval`: How often to check for changes.
 func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, aInterval time.Duration) {
 	if nil == aPc {
 		return
 	}
-	prevModTime := time.Time{}
-
+	fileInfo, err := os.Stat(aFilename)
+	if nil != err {
+		apachelogger.Err("ReProx/WatchConfigFile", err.Error())
+		return
+	}
+	if fileInfo.IsDir() {
+		apachelogger.Err("ReProx/WatchConfigFile", "Config name points to a directory")
+		return
+	}
+	var modTime time.Time
+	prevModTime := modTime
 	ticker := time.NewTicker(aInterval)
 	defer ticker.Stop()
 
@@ -346,24 +448,25 @@ func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, 
 			return
 
 		case <-ticker.C:
-			info, err := os.Stat(aFilename)
-			if nil != err {
+			if fileInfo, err = os.Stat(aFilename); nil != err {
 				apachelogger.Err("ReProx/WatchConfigFile", err.Error())
 				continue
 			}
 
-			if modTime := info.ModTime(); modTime != prevModTime {
-				if err = aPc.loadConfigFromFile(aFilename); nil != err {
+			if modTime = fileInfo.ModTime(); modTime != prevModTime {
+				if err = aPc.loadConfigFile(aFilename); nil != err {
 					apachelogger.Err("ReProx/WatchConfigFile", err.Error())
 				} else {
 					prevModTime = modTime
 					apachelogger.Log("ReProx/WatchConfigFile", "Configuration successfully reloaded")
+
+					if err = aPc.SaveConfig(aFilename); nil != err {
+						apachelogger.Err("ReProx/WatchConfigFile", err.Error())
+					}
 				}
 			}
 		}
 	}
 } // WatchConfigFile()
-
-// --------------------------------------------------------------------------
 
 /* _EoF_ */
