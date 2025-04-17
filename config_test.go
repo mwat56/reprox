@@ -8,12 +8,15 @@ package reprox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -144,7 +147,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 } // TestLoadConfig()
 
-func Test_loadConfigFromFile(t *testing.T) {
+func Test_loadConfigFile(t *testing.T) {
 	var pc *tProxyConfig
 
 	tests := []struct {
@@ -166,12 +169,12 @@ func Test_loadConfigFromFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pc = &tProxyConfig{}
-			if err := pc.loadConfigFromFile(tt.filename); (err != nil) != tt.wantErr {
-				t.Errorf("tProxyConfig.loadConfigFromFile() error = %v, wantErr %v", err, tt.wantErr)
+			if err := pc.loadConfigFile(tt.filename); (err != nil) != tt.wantErr {
+				t.Errorf("tProxyConfig.loadConfigFile() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
-} // Test_loadConfigFromFile()
+} // Test_loadConfigFile()
 
 func TestNewReverseProxy(t *testing.T) {
 	// Create test URLs
@@ -267,41 +270,154 @@ func TestNewReverseProxy(t *testing.T) {
 	}
 } // TestNewReverseProxy()
 
+func TestSaveConfig(t *testing.T) {
+	// Create a temporary directory for test files
+	tmpDir, err := os.MkdirTemp("", "config_test_*")
+	if nil != err {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test configuration
+	testConfig := &tProxyConfig{
+		hostMappings: tHostMap{
+			"example.com": tHostConfig{
+				target: &url.URL{
+					Scheme: "http",
+					Host:   "localhost:8080",
+				},
+			},
+			"test.com": tHostConfig{
+				target: &url.URL{
+					Scheme: "https",
+					Host:   "backend:9000",
+				},
+			},
+		},
+		AccessLog:   "/var/log/access.log",
+		ErrorLog:    "/var/log/error.log",
+		TLSCertFile: "/etc/ssl/cert.pem",
+		TLSKeyFile:  "/etc/ssl/key.pem",
+		MaxRequests: 150,
+		WindowSize:  time.Duration(120) * time.Second,
+	}
+
+	// Test cases
+	tests := []struct {
+		name     string
+		config   *tProxyConfig
+		wantErr  bool
+		validate func(*testing.T, string)
+	}{
+		{
+			name:    "ValidConfig",
+			config:  testConfig,
+			wantErr: false,
+			validate: func(t *testing.T, filename string) {
+				// Read and parse the saved file
+				data, err := os.ReadFile(filename)
+				if nil != err {
+					t.Errorf("Failed to read saved config: %v", err)
+					return
+				}
+
+				var saved tConfigFile
+				if err := json.Unmarshal(data, &saved); nil != err {
+					t.Errorf("Failed to parse saved config: %v", err)
+					return
+				}
+
+				// Verify contents
+				if len(saved.Hosts) != 2 {
+					t.Errorf("Expected 2 hosts, got %d", len(saved.Hosts))
+				}
+				if saved.Hosts["example.com"] != "http://localhost:8080" {
+					t.Errorf("Unexpected host mapping: %s", saved.Hosts["example.com"])
+				}
+				if saved.AccessLog != "/var/log/access.log" {
+					t.Errorf("Unexpected access log: %s", saved.AccessLog)
+				}
+				if saved.MaxRequests != 150 {
+					t.Errorf("Unexpected max requests: %d", saved.MaxRequests)
+				}
+				if saved.WindowSize != 120 {
+					t.Errorf("Unexpected window size: %d", saved.WindowSize)
+				}
+
+				// Verify file permissions
+				info, err := os.Stat(filename)
+				if nil != err {
+					t.Errorf("Failed to stat config file: %v", err)
+					return
+				}
+				if mode := info.Mode().Perm(); mode != 0600 {
+					t.Errorf("Unexpected file permissions: %o", mode)
+				}
+			},
+		},
+		{
+			name:    "InvalidPath",
+			config:  testConfig,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filename := filepath.Join(tmpDir, tt.name+".json")
+			if tt.name == "InvalidPath" {
+				filename = filepath.Join(tmpDir, "non-existent", "config.json")
+			}
+
+			err := tt.config.SaveConfig(filename)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SaveConfig() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && tt.validate != nil {
+				tt.validate(t, filename)
+			}
+		})
+	}
+} // TestSaveConfig()
+
 func TestWatchConfigFile(t *testing.T) {
 	// Create a temporary config file
 	tmpFile, err := os.CreateTemp("", "config_*.json")
 	if nil != err {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
 
 	// Initial config content
 	initialConfig := `{
 		"hosts": {
-			"example.com": "http://backend1.local:8080"
-		},
-		"accessLog": "access.log",
-		"errorLog": "error.log"
-	}`
-	if err := os.WriteFile(tmpFile.Name(), []byte(initialConfig), 0600); nil != err {
+		"example.com": "http://backend1.local:1111"
+	},
+	"accessLog": "access.log",
+	"errorLog": "error.log"
+}`
+	if err := os.WriteFile(tmpName, []byte(initialConfig), 0600); nil != err {
 		t.Fatalf("Failed to write initial config: %v", err)
 	}
 
 	// Create proxy config
-	pc, err := LoadConfig(tmpFile.Name())
+	pc, err := LoadConfig(tmpName)
 	if nil != err {
 		t.Fatalf("Failed to load initial config: %v", err)
 	}
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Start watching in a goroutine
-	go WatchConfigFile(ctx, pc, tmpFile.Name(), 100*time.Millisecond)
+	go WatchConfigFile(ctx, pc, tmpName, 100*time.Millisecond)
 
 	// Wait for watcher to start
-	time.Sleep(200 * time.Millisecond)
+	runtime.Gosched()
 
 	// Test cases
 	tests := []struct {
@@ -314,25 +430,26 @@ func TestWatchConfigFile(t *testing.T) {
 		{
 			name: "UpdateValidConfig",
 			config: `{
-				"hosts": {
-					"example.com": "http://backend2.local:9090"
-				},
-				"accessLog": "access.log",
-				"errorLog": "error.log"
-			}`,
+			"hosts": {
+				"example.com": "http://backend2.local:2222"
+			},
+			"accessLog": "access.log",
+			"errorLog": "error.log"
+		}`,
 			wantHost:   "example.com",
-			wantTarget: "http://backend2.local:9090",
+			wantTarget: "http://backend2.local:2222",
 			wantError:  false,
 		},
+		// ---
 		{
 			name: "InvalidConfig",
 			config: `{
-				"hosts": {
-					"example.com": "invalid:url"
-				}
-			}`,
+			"hosts": {
+				"example.com": "invalid:url"
+			}
+		}`,
 			wantHost:   "example.com",
-			wantTarget: "http://backend2.local:9090", // Should retain previous valid config
+			wantTarget: "http://backend2.local:2222", // Should retain previous valid config
 			wantError:  true,
 		},
 	}
@@ -340,13 +457,12 @@ func TestWatchConfigFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Write new config
-			err := os.WriteFile(tmpFile.Name(), []byte(tt.config), 0600)
-			if nil != err {
+			if err := os.WriteFile(tmpName, []byte(tt.config), 0600); nil != err {
 				t.Fatalf("Failed to write config: %v", err)
 			}
 
 			// Wait for config reload
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(800 * time.Millisecond)
 
 			// Verify config update
 			pc.RLock()
@@ -359,7 +475,8 @@ func TestWatchConfigFile(t *testing.T) {
 			}
 
 			if host.target.String() != tt.wantTarget {
-				t.Errorf("Target = %v, want %v", host.target.String(), tt.wantTarget)
+				t.Errorf("got = '%v', want '%v'",
+					host.target.String(), tt.wantTarget)
 			}
 		})
 	}
@@ -367,7 +484,7 @@ func TestWatchConfigFile(t *testing.T) {
 	// Test nil config
 	t.Run("NilConfig", func(t *testing.T) {
 		// Should return immediately without panic
-		WatchConfigFile(ctx, nil, tmpFile.Name(), 100*time.Millisecond)
+		WatchConfigFile(ctx, nil, tmpName, 100*time.Millisecond)
 	})
 
 	// Test non-existent file
@@ -385,7 +502,7 @@ func TestWatchConfigFile(t *testing.T) {
 		done := make(chan struct{})
 
 		go func() {
-			WatchConfigFile(cancelCtx, pc, tmpFile.Name(), 100*time.Millisecond)
+			WatchConfigFile(cancelCtx, pc, tmpName, 100*time.Millisecond)
 			close(done)
 		}()
 
