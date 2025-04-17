@@ -375,7 +375,7 @@ func TestWatchConfigFile(t *testing.T) {
 		nonExistentCtx, nonExistentCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer nonExistentCancel()
 
-		WatchConfigFile(nonExistentCtx, pc, "nonexistent.json", 100*time.Millisecond)
+		WatchConfigFile(nonExistentCtx, pc, "non-existent.json", 100*time.Millisecond)
 		// Should log error but not panic
 	})
 
@@ -401,6 +401,6 @@ func TestWatchConfigFile(t *testing.T) {
 			t.Error("WatchConfigFile did not return after context cancellation")
 		}
 	})
-}
+} // TestWatchConfigFile()
 
 /* _EoF_ */
