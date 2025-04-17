@@ -231,6 +231,8 @@ func main() {
 
 	// Start the config watcher
 	go reprox.WatchConfigFile(ctx, proxyConfig, configFile, 30*time.Second)
+	// Wait for watcher to start
+	runtime.Gosched()
 
 	// Create a new proxy handler with the configuration
 	ph := reprox.NewProxyHandler(proxyConfig)
