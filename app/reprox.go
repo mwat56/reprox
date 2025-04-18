@@ -205,7 +205,7 @@ func setupSignals(aServer *http.Server) {
 		)
 		defer cancelTimeout()
 		if err := aServer.Shutdown(ctxTimeout); err != nil {
-			exit(fmt.Sprintf("%s: %v", gMe, err))
+			exit(fmt.Sprintf("%s: '%v'", gMe, err))
 		}
 	}()
 } // setupSignals()
@@ -216,14 +216,14 @@ func setupSignals(aServer *http.Server) {
 func main() {
 	// First check whether we're actually running as root:
 	if 0 != os.Getuid() {
-		exit("\nroot privileges required to bind to ports 80 and 443; terminating ...")
+		exit("\n\troot privileges required to bind to ports 80 and 443; terminating ...\n")
 	}
 
 	// Load the configuration
 	configFile := filepath.Join(reprox.ConfDir(), gMe+".json")
 	proxyConfig, err := reprox.LoadConfig(configFile)
 	if nil != err {
-		log.Fatalf("Configuration load error: %v", err)
+		log.Fatalf("Configuration load error: '%v'", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -293,7 +293,7 @@ func main() {
 		server80 := createServer80(handler)
 		if err := server80.ListenAndServe(); nil != err {
 			cancel()
-			exit(fmt.Sprintf("%s:80 %v", gMe, err))
+			exit(fmt.Sprintf("%s:80 '%v'", gMe, err))
 		}
 	}()
 
@@ -322,7 +322,7 @@ func main() {
 			server443 := createServer443(handler, certificate)
 			if err := server443.ListenAndServeTLS(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile); nil != err {
 				cancel()
-				exit(fmt.Sprintf("%s:443 %v", gMe, err))
+				exit(fmt.Sprintf("%s:443 '%v'", gMe, err))
 			}
 		}()
 	}
