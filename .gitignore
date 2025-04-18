@@ -7,4 +7,4 @@
 .vscode/
 TODO*
 bin/
-reprox.json
+*.json
