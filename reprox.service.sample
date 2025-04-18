@@ -8,8 +8,10 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/tmp
-ExecStart=/home/matthias/devel/Go/src/github.com/mwat56/reprox/bin/reprox-linux-amd64 -listen=0
+ExecStart=/opt/bin/reprox-linux-amd64
 Restart=on-failure
+RestartSec=1s
 
 [Install]
 WantedBy=multi-user.target
+Alias=reprox-server.service

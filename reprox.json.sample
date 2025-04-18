@@ -5,8 +5,8 @@
 	},
 	"access_log": "./access.log",
 	"error_log": "./error.log",
-	"tls_cert": "/etc/ssl/certs/proxy.pem",
-	"tls_key": "/etc/ssl/private/proxy.key",
+	"tls_cert": "/etc/ssl/certs/reprox.pem",
+	"tls_key": "/etc/ssl/private/reprox.key",
 	"max_requests": 100,
 	"window_size": 60
 }

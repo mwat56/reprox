@@ -8,3 +8,4 @@
 TODO*
 bin/
 *.json
+*.service
