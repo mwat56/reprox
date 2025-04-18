@@ -6,7 +6,5 @@
 .github/
 .vscode/
 TODO*
-XXX*
 bin/
 reprox.json
-tc*.json
