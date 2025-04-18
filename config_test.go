@@ -6,6 +6,8 @@ Copyright © 2025  M.Watermann, 10247 Berlin, Germany
 */
 package reprox
 
+//lint:file-ignore ST1017 - I prefer Yoda conditions
+
 import (
 	"context"
 	"encoding/json"
@@ -108,72 +110,185 @@ func Test_getTarget(t *testing.T) {
 } // Test_getTarget()
 
 func TestLoadConfig(t *testing.T) {
-	pc := &tProxyConfig{}
-
 	tests := []struct {
 		name     string
 		filename string
-		want     *tProxyConfig
 		wantErr  bool
 	}{
-		{"Empty", "", nil, true},
-		{"MissingLog", "FileNotFound.json", nil, true},
-		{"EmptyLog", "tc2.json", nil, true},
-		{"InvalidLog", "tc3.json", nil, true},
-		{"CorrectConf", "tc4.json", pc, false},
-		{"NoMappings", "tc5.json", nil, true},
-		{"NoLogs", "tc6.json", pc, false},
-		{"InvalidMappings", "tc7.json", nil, true},
+		{"NonExistentFile", "non-existent.json", true},
+		{"EmptyFilename", "", true},
 
-		// TODO: Add test cases.
+		// Note: Most tests are run in `Test_loadConfigFile()`
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := LoadConfig(tt.filename)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
+			config, err := LoadConfig(tt.filename)
+			if (nil != err) != tt.wantErr {
+				t.Errorf("LoadConfig() error = '%v', wantErr %v", err, tt.wantErr)
 				return
 			}
-			if nil == got {
-				if nil != tt.want {
-					t.Errorf("LoadConfig() = %v, want %v", got, tt.want)
-				}
-				return
+			if nil != config {
+				t.Error("LoadConfig() returned non-nil config for invalid file")
 			}
-
-			//TODO: compare `got` with `tt.want`
-
 		})
 	}
 } // TestLoadConfig()
 
 func Test_loadConfigFile(t *testing.T) {
-	var pc *tProxyConfig
+	// Create a temporary directory for test files
+	tmpDir, err := os.MkdirTemp("", "config_test_*")
+	if nil != err {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test configuration files
+	validConfig := `{
+	"hosts": {
+		"example.com": "http://localhost:8080",
+		"test.com": "https://backend:9000"
+	},
+	"access_log": "/var/log/access.log",
+	"error_log": "/var/log/error.log",
+	"tls_cert": "/etc/ssl/cert.pem",
+	"tls_key": "/etc/ssl/key.pem",
+	"max_requests": 150,
+	"window_size": 120
+}`
+	invalidURLConfig := `{
+	"hosts": {
+		"example.com": "invalid://url"
+	}
+}`
+	emptyHostsConfig := `{
+	"access_log": "/var/log/access.log",
+	"error_log": "/var/log/error.log"
+}`
+	emptyConfig := `{}`
+	invalidJSONConfig := `# This is not a valid JSON file`
+
+	// Write test files
+	validFile := filepath.Join(tmpDir, "valid.json")
+	if err := os.WriteFile(validFile, []byte(validConfig), 0600); nil != err {
+		t.Fatalf("Failed to write valid config file: %v", err)
+	}
+
+	invalidURLFile := filepath.Join(tmpDir, "invalidURL.json")
+	if err := os.WriteFile(invalidURLFile, []byte(invalidURLConfig), 0600); nil != err {
+		t.Fatalf("Failed to write invalid config file: %v", err)
+	}
+
+	emptyHostsFile := filepath.Join(tmpDir, "empty_hosts.json")
+	if err := os.WriteFile(emptyHostsFile, []byte(emptyHostsConfig), 0600); nil != err {
+		t.Fatalf("Failed to write empty hosts config file: %v", err)
+	}
+
+	emptyConfigFile := filepath.Join(tmpDir, "empty.json")
+	if err := os.WriteFile(emptyConfigFile, []byte(emptyConfig), 0600); nil != err {
+		t.Fatalf("Failed to write empty config file: %v", err)
+	}
+
+	invalidJSONFile := filepath.Join(tmpDir, "invalidJSON.json")
+	if err := os.WriteFile(invalidJSONFile, []byte(invalidJSONConfig), 0600); nil != err {
+		t.Fatalf("Failed to write invalid config file: %v", err)
+	}
+
+	// Create directory for testing directory error
+	dirPath := filepath.Join(tmpDir, "config_dir")
+	if err := os.Mkdir(dirPath, 0755); nil != err {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
 
 	tests := []struct {
 		name     string
 		filename string
 		wantErr  bool
+		validate func(*testing.T, *tProxyConfig)
 	}{
-		{"Empty", "", true},
-		{"MissingLog", "FileNotFound.json", true},
-		{"EmptyLog", "tc2.json", true},
-		{"InvalidLog", "tc3.json", true},
-		{"CorrectConf", "tc4.json", false},
-		{"NoMappings", "tc5.json", true},
-		{"NoLogs", "tc6.json", false},
-		{"InvalidMappings", "tc7.json", true},
-
-		// TODO: Add test cases.
+		{
+			name:     "ValidConfig",
+			filename: validFile,
+			wantErr:  false,
+			validate: func(t *testing.T, pc *tProxyConfig) {
+				// Check host mappings
+				if 2 != len(pc.hostMappings) {
+					t.Errorf("Expected 2 host mappings, got %d", len(pc.hostMappings))
+				}
+				// Check specific host mapping
+				if host, exists := pc.hostMappings["example.com"]; !exists {
+					t.Error("Expected host mapping for example.com not found")
+				} else if host.target.String() != "http://localhost:8080" {
+					t.Errorf("Wrong target URL, got %s, want http://localhost:8080", host.target.String())
+				}
+				// Check configuration values
+				if "/var/log/access.log" != pc.AccessLog {
+					t.Errorf("Wrong access log path, got %s", pc.AccessLog)
+				}
+				if 150 != pc.MaxRequests {
+					t.Errorf("Wrong max requests, got %d, want 150", pc.MaxRequests)
+				}
+				if 120*time.Second != pc.WindowSize {
+					t.Errorf("Wrong window size, got %v, want 120s", pc.WindowSize)
+				}
+			},
+		}, {
+			name:     "InvalidURLConfig",
+			filename: invalidURLFile,
+			wantErr:  true,
+		}, {
+			name:     "EmptyHostsConfig",
+			filename: emptyHostsFile,
+			wantErr:  true,
+		}, {
+			name:     "EmptyConfig",
+			filename: emptyConfigFile,
+			wantErr:  true,
+		}, {
+			name:     "NonExistentFile",
+			filename: filepath.Join(tmpDir, "nonExistent.json"),
+			wantErr:  true,
+		}, {
+			name:     "InvalidJSONConfig",
+			filename: invalidJSONFile,
+			wantErr:  true,
+		}, {
+			name:     "DirectoryInsteadOfFile",
+			filename: dirPath,
+			wantErr:  true,
+		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pc = &tProxyConfig{}
-			if err := pc.loadConfigFile(tt.filename); (err != nil) != tt.wantErr {
-				t.Errorf("tProxyConfig.loadConfigFile() error = %v, wantErr %v", err, tt.wantErr)
+			pc := &tProxyConfig{}
+			err := pc.loadConfigFile(tt.filename)
+			if (nil != err) != tt.wantErr {
+				t.Errorf("loadConfigFile() error = '%v', wantErr '%v'", err, tt.wantErr)
+				return
+			}
+
+			// If validation function provided and no error expected, run validation
+			if !tt.wantErr && nil != tt.validate {
+				tt.validate(t, pc)
 			}
 		})
 	}
+
+	// Test file permissions warning
+	t.Run("InsecurePermissions", func(t *testing.T) {
+		insecureFile := filepath.Join(tmpDir, "insecure.json")
+		if err := os.WriteFile(insecureFile, []byte(validConfig), 0644); nil != err {
+			t.Fatalf("Failed to write insecure config file: '%v'", err)
+		}
+
+		pc := &tProxyConfig{}
+		if err := pc.loadConfigFile(insecureFile); nil != err {
+			t.Errorf("loadConfigFile() unexpected error = '%v'", err)
+		}
+		// Note: We can't easily test the warning log message,
+		// but the function should still succeed
+	})
 } // Test_loadConfigFile()
 
 func TestNewReverseProxy(t *testing.T) {
@@ -328,7 +443,7 @@ func TestSaveConfig(t *testing.T) {
 				}
 
 				// Verify contents
-				if len(saved.Hosts) != 2 {
+				if 2 != len(saved.Hosts) {
 					t.Errorf("Expected 2 hosts, got %d", len(saved.Hosts))
 				}
 				if saved.Hosts["example.com"] != "http://localhost:8080" {
@@ -350,12 +465,11 @@ func TestSaveConfig(t *testing.T) {
 					t.Errorf("Failed to stat config file: %v", err)
 					return
 				}
-				if mode := info.Mode().Perm(); mode != 0600 {
+				if mode := info.Mode().Perm(); 0600 != mode {
 					t.Errorf("Unexpected file permissions: %o", mode)
 				}
 			},
-		},
-		{
+		}, {
 			name:    "InvalidPath",
 			config:  testConfig,
 			wantErr: true,
@@ -370,12 +484,12 @@ func TestSaveConfig(t *testing.T) {
 			}
 
 			err := tt.config.SaveConfig(filename)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SaveConfig() error = %v, wantErr %v", err, tt.wantErr)
+			if (nil != err) != tt.wantErr {
+				t.Errorf("SaveConfig() error = '%v', wantErr '%v'", err, tt.wantErr)
 				return
 			}
 
-			if !tt.wantErr && tt.validate != nil {
+			if !tt.wantErr && nil != tt.validate {
 				tt.validate(t, filename)
 			}
 		})
@@ -393,11 +507,11 @@ func TestWatchConfigFile(t *testing.T) {
 
 	// Initial config content
 	initialConfig := `{
-		"hosts": {
+	"hosts": {
 		"example.com": "http://backend1.local:1111"
 	},
-	"accessLog": "access.log",
-	"errorLog": "error.log"
+	"access_log": "access.log",
+	"error_log": "error.log"
 }`
 	if err := os.WriteFile(tmpName, []byte(initialConfig), 0600); nil != err {
 		t.Fatalf("Failed to write initial config: %v", err)
@@ -430,24 +544,22 @@ func TestWatchConfigFile(t *testing.T) {
 		{
 			name: "UpdateValidConfig",
 			config: `{
-			"hosts": {
-				"example.com": "http://backend2.local:2222"
-			},
-			"accessLog": "access.log",
-			"errorLog": "error.log"
-		}`,
+	"hosts": {
+		"example.com": "http://backend2.local:2222"
+	},
+	"access_log": "access.log",
+	"error_log": "error.log"
+}`,
 			wantHost:   "example.com",
 			wantTarget: "http://backend2.local:2222",
 			wantError:  false,
-		},
-		// ---
-		{
+		}, {
 			name: "InvalidConfig",
 			config: `{
-			"hosts": {
-				"example.com": "invalid:url"
-			}
-		}`,
+	"hosts": {
+		"example.com": "invalid:url"
+	}
+}`,
 			wantHost:   "example.com",
 			wantTarget: "http://backend2.local:2222", // Should retain previous valid config
 			wantError:  true,
