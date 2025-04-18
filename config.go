@@ -208,6 +208,12 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if "" == conf.ErrorLog {
 		conf.ErrorLog = fmt.Sprintf("%s.%s.log", "error", gMe)
 	}
+	if "" == conf.TLSCert {
+		conf.TLSCert = fmt.Sprintf("/etc/ssl/%s.pem", gMe)
+	}
+	if "" == conf.TLSKey {
+		conf.TLSKey = fmt.Sprintf("/etc/ssl/%s.key", gMe)
+	}
 
 	// Set rate limiting defaults if not specified
 	if conf.MaxRequests <= 0 {
@@ -231,7 +237,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 			return err
 		}
 		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
-			err = fmt.Errorf("Invalid target URL.scheme for '%s'", targetURL.Scheme)
+			err = fmt.Errorf("Invalid target URL scheme for '%s'", targetURL.Scheme)
 			apachelogger.Err("ReProx/loadConfigFile", err.Error())
 			return err
 		}
