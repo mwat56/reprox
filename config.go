@@ -305,7 +305,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 
 	// Write configuration to temporary file
 	if _, err = tmpFile.Write(configData); nil != err {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		err = fmt.Errorf("Failed to write config to temporary file '%s': %w", tmpName, err)
 		apachelogger.Err("ReProx/SaveConfig", err.Error())
 		return err
@@ -341,7 +341,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 // If the current user is root, the directory is "/etc/<program_name>".
 // Otherwise, it is "~/.config/<program_name>".
 //
-// If the directory does not yet exist, it is created with permissions 0770.
+// If the directory does not yet exist, it is created with permissions 0750.
 //
 // Returns:
 //   - `string`: The directory path to use for application-specific configuration files.
@@ -360,7 +360,7 @@ func ConfDir() (rDir string) {
 		return
 	}
 
-	if err := os.Mkdir(rDir, 0770); nil != err {
+	if err := os.Mkdir(rDir, 0750); nil != err {
 		rDir, _ = os.UserConfigDir()
 	}
 
