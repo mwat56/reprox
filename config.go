@@ -135,7 +135,7 @@ var (
 func (pc *tProxyConfig) ErrorHandler(aWriter http.ResponseWriter, aRequest *http.Request, err error) {
 	apachelogger.Err("ReProx/ErrorHandler", err.Error())
 
-	aWriter.WriteHeader(http.StatusBadGateway)
+	aWriter.WriteHeader(http.StatusBadGateway) // 502 Bad Gateway
 } // ErrorHandler()
 
 // `getTarget()` retrieves the target URL for a requested host.
@@ -164,63 +164,72 @@ func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
 // Returns:
 //   - `error`: An error, if the configuration could not be loaded.
 func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
+	errTxt := "ReProx/loadConfigFile"
+
+	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
-		err = fmt.Errorf("Failed to accessed config file '%s': %w", aFilename, err)
-		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+		err = fmt.Errorf("Failed to accessed config file '%s': %w",
+			aFilename, err)
+		apachelogger.Err(errTxt, err.Error())
 		return err
 	}
 	if fileInfo.IsDir() {
-		msg := fmt.Sprintf("Configuration name points to a directory: %s", aFilename)
-		apachelogger.Err("ReProx/loadConfigFile", msg)
+		msg := fmt.Sprintf("Configuration name points to a directory: %s",
+			aFilename)
+		apachelogger.Err(errTxt, msg)
 		return errors.New(msg)
 	}
 
 	// Verify file permissions
 	if mode := fileInfo.Mode().Perm(); 0 != mode&0077 {
-		msg := fmt.Sprintf("Warning: Insecure file permissions: %#o (want 600)", mode)
-		apachelogger.Log("ReProx/loadConfigFile", msg)
+		msg := fmt.Sprintf("Warning: Insecure file permissions: %#o (want 600)",
+			mode)
+		apachelogger.Log(errTxt, msg)
 	}
 
 	configData, err := os.ReadFile(aFilename)
 	if nil != err {
-		err = fmt.Errorf("Failed to read config file '%s': %w", aFilename, err)
-		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+		err = fmt.Errorf("Failed to read config file '%s': %w",
+			aFilename, err)
+		apachelogger.Err(errTxt, err.Error())
 		return err
 	}
 
-	var conf tConfigFile
-	if err = json.Unmarshal(configData, &conf); nil != err {
-		err = fmt.Errorf("Failed to parse config file: '%s': %w", aFilename, err)
-		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+	var fconf tConfigFile
+	if err = json.Unmarshal(configData, &fconf); nil != err {
+		err = fmt.Errorf("Failed to parse config file: '%s': %w",
+			aFilename, err)
+		apachelogger.Err(errTxt, err.Error())
 		return err
 	}
 
-	if 0 == len(conf.Hosts) {
-		err = fmt.Errorf("Missing host mappings in config file: '%s'", aFilename)
-		apachelogger.Err("ReProx/loadConfigFile", err.Error())
+	if 0 == len(fconf.Hosts) {
+		err = fmt.Errorf("Missing host mappings in config file: '%s'",
+			aFilename)
+		apachelogger.Err(errTxt, err.Error())
 		return err
 	}
 
-	if "" == conf.AccessLog {
-		conf.AccessLog = fmt.Sprintf("%s.%s.log", "access", gMe)
+	if "" == fconf.AccessLog {
+		fconf.AccessLog = fmt.Sprintf("%s.%s.log", "access", gMe)
 	}
-	if "" == conf.ErrorLog {
-		conf.ErrorLog = fmt.Sprintf("%s.%s.log", "error", gMe)
+	if "" == fconf.ErrorLog {
+		fconf.ErrorLog = fmt.Sprintf("%s.%s.log", "error", gMe)
 	}
-	if "" == conf.TLSCert {
-		conf.TLSCert = fmt.Sprintf("/etc/ssl/%s.pem", gMe)
+	if "" == fconf.TLSCert {
+		fconf.TLSCert = fmt.Sprintf("/etc/ssl/%s.pem", gMe)
 	}
-	if "" == conf.TLSKey {
-		conf.TLSKey = fmt.Sprintf("/etc/ssl/%s.key", gMe)
+	if "" == fconf.TLSKey {
+		fconf.TLSKey = fmt.Sprintf("/etc/ssl/%s.key", gMe)
 	}
 
 	// Set rate limiting defaults if not specified
-	if conf.MaxRequests <= 0 {
-		conf.MaxRequests = 100 // default to 100 requests
+	if fconf.MaxRequests <= 0 {
+		fconf.MaxRequests = 100 // default to 100 requests
 	}
-	if conf.WindowSize <= 0 {
-		conf.WindowSize = 60 // default to 60 seconds
+	if fconf.WindowSize <= 0 {
+		fconf.WindowSize = 60 // default to 60 seconds
 	}
 
 	// Update logs and TLS first (atomic operation)
@@ -230,15 +239,17 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	// Update host mappings
 	tempMapping := make(tHostMap)
 	targetURL := &url.URL{}
-	for host, target := range conf.Hosts {
+	for host, target := range fconf.Hosts {
 		if targetURL, err = url.Parse(target); nil != err {
-			err = fmt.Errorf("Invalid target URL in config file: '%s': %w", aFilename, err)
-			apachelogger.Err("ReProx/loadConfigFile", err.Error())
+			err = fmt.Errorf("Invalid target URL in config file: '%s': %w",
+				aFilename, err)
+			apachelogger.Err(errTxt, err.Error())
 			return err
 		}
 		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
-			err = fmt.Errorf("Invalid target URL scheme for '%s'", targetURL.Scheme)
-			apachelogger.Err("ReProx/loadConfigFile", err.Error())
+			err = fmt.Errorf("Invalid target URL scheme for '%s'",
+				targetURL.Scheme)
+			apachelogger.Err(errTxt, err.Error())
 			return err
 		}
 
@@ -246,12 +257,12 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	}
 	pc.hostMappings = tempMapping
 
-	pc.AccessLog = absDir("", conf.AccessLog)
-	pc.ErrorLog = absDir("", conf.ErrorLog)
-	pc.TLSCertFile = absDir("", conf.TLSCert)
-	pc.TLSKeyFile = absDir("", conf.TLSKey)
-	pc.MaxRequests = conf.MaxRequests
-	pc.WindowSize = time.Duration(conf.WindowSize) * time.Second
+	pc.AccessLog = absDir("", fconf.AccessLog)
+	pc.ErrorLog = absDir("", fconf.ErrorLog)
+	pc.TLSCertFile = absDir("", fconf.TLSCert)
+	pc.TLSKeyFile = absDir("", fconf.TLSKey)
+	pc.MaxRequests = fconf.MaxRequests
+	pc.WindowSize = time.Duration(fconf.WindowSize) * time.Second
 
 	return nil
 } // loadConfigFile()
@@ -433,46 +444,46 @@ func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, 
 	if nil == aPc {
 		return
 	}
+	errTxt := "ReProx/WatchConfigFile"
+
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
-		apachelogger.Err("ReProx/WatchConfigFile", err.Error())
+		apachelogger.Err(errTxt, err.Error())
 		return
 	}
+
 	if fileInfo.IsDir() {
-		apachelogger.Err("ReProx/WatchConfigFile", "Config name points to a directory")
+		apachelogger.Err(errTxt, "Config name points to a directory")
 		return
 	}
+
 	var modTime time.Time
-	prevModTime := modTime
+	prevModTime := fileInfo.ModTime()
 	ticker := time.NewTicker(aInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-aCtx.Done():
-			apachelogger.Err("ReProx/WatchConfigFile", aCtx.Err().Error())
+			apachelogger.Err(errTxt, aCtx.Err().Error())
 			return
 
 		case <-ticker.C:
 			if fileInfo, err = os.Stat(aFilename); nil != err {
-				apachelogger.Err("ReProx/WatchConfigFile", err.Error())
+				apachelogger.Err(errTxt, err.Error())
 				continue
 			}
 
 			if modTime = fileInfo.ModTime(); modTime != prevModTime {
 				if err = aPc.loadConfigFile(aFilename); nil != err {
-					apachelogger.Err("ReProx/WatchConfigFile", err.Error())
+					apachelogger.Err(errTxt, err.Error())
 				} else {
 					prevModTime = modTime
-					apachelogger.Log("ReProx/WatchConfigFile", "Configuration successfully reloaded")
-
-					if err = aPc.SaveConfig(aFilename); nil != err {
-						apachelogger.Err("ReProx/WatchConfigFile", err.Error())
-					}
+					apachelogger.Log(errTxt, "Configuration successfully reloaded")
 				}
-			}
-		}
-	}
+			} // if
+		} // select
+	} // for
 } // WatchConfigFile()
 
 /* _EoF_ */
