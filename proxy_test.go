@@ -137,7 +137,7 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 
 	// Create proxy configuration
 	config := &tProxyConfig{
-		hostMappings: tHostMap{
+		hostMap: tHostMap{
 			"example.com": {
 				target:    backend1URL,
 				destProxy: nil,
@@ -250,7 +250,7 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 	// Test error handling when creating reverse proxy
 	t.Run("ProxyCreationError", func(t *testing.T) {
 		invalidConfig := &tProxyConfig{
-			hostMappings: tHostMap{
+			hostMap: tHostMap{
 				"example.com": {
 					target:    nil, // This will cause createReverseProxy to fail
 					destProxy: nil,
@@ -280,7 +280,7 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 		handler.ServeHTTP(rr, req)
 
 		// Get the created proxy
-		firstProxy := handler.conf.hostMappings["example.com"].destProxy
+		firstProxy := handler.conf.hostMap["example.com"].destProxy
 		if nil == firstProxy {
 			t.Fatal("Proxy was not created")
 		}
@@ -289,7 +289,7 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 		rr = httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 
-		secondProxy := handler.conf.hostMappings["example.com"].destProxy
+		secondProxy := handler.conf.hostMap["example.com"].destProxy
 		if firstProxy != secondProxy {
 			t.Error("Proxy was not reused")
 		}

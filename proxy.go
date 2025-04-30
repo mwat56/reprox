@@ -85,7 +85,7 @@ func (ph *TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.R
 
 	// Check if a backend server is available for the requested host.
 	ph.conf.RLock()
-	target, ok := ph.conf.hostMappings[requestHost]
+	target, ok := ph.conf.hostMap[requestHost]
 	ph.conf.RUnlock()
 	if !ok {
 		msg := fmt.Sprintf("Server %q not found", requestHost)
@@ -117,7 +117,7 @@ func (ph *TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.R
 
 		// Update the configuration with the new reverse proxy.
 		target.destProxy = proxy
-		ph.conf.hostMappings[requestHost] = target
+		ph.conf.hostMap[requestHost] = target
 		ph.conf.Unlock()
 	}
 
