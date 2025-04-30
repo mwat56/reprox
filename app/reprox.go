@@ -235,52 +235,61 @@ func main() {
 	runtime.Gosched()
 
 	// Create a new proxy handler with the configuration
-	ph := reprox.NewProxyHandler(proxyConfig)
+	ph := reprox.New(proxyConfig)
 
 	// setup the `ApacheLogger`:
 	handler := apachelogger.Wrap(ph, proxyConfig.AccessLog, proxyConfig.ErrorLog)
 
-	// include rate limiting
-	handler, getMetrics := ratelimit.Wrap(handler, proxyConfig.MaxRequests, proxyConfig.WindowSize)
+	// include rate limiting, if configured
+	var getMetrics ratelimit.TMetricsFunc
+	maxReq := uint(0)
+	if 0 < proxyConfig.MaxRequests { // rate limiting enabled
+		maxReq = uint(proxyConfig.MaxRequests) //#nosec G115
+	}
+	handler, getMetrics = ratelimit.Wrap(handler, maxReq, proxyConfig.WindowSize)
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func(aCtx context.Context) { // periodically log metrics
-		defer wg.Done()
+	if (0 < proxyConfig.MaxRequests) && (nil != getMetrics) {
+		apachelogger.Log("ReProx/main", "Rate limiting enabled")
 
-		var (
-			metrics   ratelimit.TMetrics
-			prevTotal uint64
-			msg       string
-		)
-		ticker := time.NewTicker(proxyConfig.WindowSize * 2)
-		defer ticker.Stop()
+		wg.Add(1)
+		go func(aCtx context.Context) { // periodically log metrics
+			defer wg.Done()
 
-		for {
-			select {
-			case <-aCtx.Done():
-				apachelogger.Err("ReProx/main", aCtx.Err().Error())
-				return
+			var (
+				metrics   ratelimit.TMetrics
+				prevTotal uint64
+				msg       string
+			)
+			ticker := time.NewTicker(proxyConfig.WindowSize * 2)
+			defer ticker.Stop()
 
-			case <-ticker.C:
-				metrics = getMetrics()
-				if prevTotal != metrics.TotalRequests {
-					prevTotal = metrics.TotalRequests
-					msg = fmt.Sprintf("Rate Limiter Metrics:\n"+
-						"Total Requests: %d\n"+
-						"Blocked Requests: %d\n"+
-						"Active Clients: %d\n"+
-						"Cleanup Interval: %v\n",
-						metrics.TotalRequests,
-						metrics.BlockedRequests,
-						metrics.ActiveClients,
-						metrics.CleanupDuration)
-					apachelogger.Log("ReProx/main", msg)
+			for {
+				select {
+				case <-aCtx.Done():
+					apachelogger.Err("ReProx/main", aCtx.Err().Error())
+					return
+
+				case <-ticker.C:
+					metrics = getMetrics()
+					if prevTotal != metrics.TotalRequests {
+						prevTotal = metrics.TotalRequests
+						msg = fmt.Sprintf("Rate Limiter Metrics:\n"+
+							"Total Requests: %d\n"+
+							"Blocked Requests: %d\n"+
+							"Active Clients: %d\n"+
+							"Cleanup Interval: %v\n",
+							metrics.TotalRequests,
+							metrics.BlockedRequests,
+							metrics.ActiveClients,
+							metrics.CleanupDuration)
+						apachelogger.Log("ReProx/main", msg)
+					}
 				}
 			}
-		}
-	}(ctx)
+		}(ctx)
+	}
 
 	wg.Add(1)
 	go func() { // HTTP server
@@ -310,7 +319,6 @@ func main() {
 
 			certificate, err := tls.LoadX509KeyPair(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile)
 			if nil != err {
-				// cancel()
 				// exit(fmt.Sprintf("%s:443 %v", gMe, err))
 				return
 			}
