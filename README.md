@@ -16,7 +16,7 @@
 	- [Installation](#installation)
 	- [Usage](#usage)
 		- [Configuration](#configuration)
-			- [The JSON configuration structure](#the-json-configuration-structure)
+		- [Running](#running)
 	- [Libraries](#libraries)
 	- [Licence](#licence)
 
@@ -82,7 +82,7 @@ The configuration file is a JSON file – expected in `/etc/reprox/reprox.json` 
 		"window_size": 60      // Time window in seconds for rate limiting
 	}
 
-#### The JSON configuration structure
+**JSON configuration structure:**
 
 1. `hosts`: A map/dictionary where:
 	- Keys are host names (e.g., api.example.com) by which this server is contacted.
@@ -103,6 +103,20 @@ This configuration allows the proxy to:
 - support HTTPS,
 - log access and errors,
 - protect backend servers from overload through rate limiting.
+
+### Running
+
+To run the reverse proxy server, execute the following command:
+
+	sudo /opt/bin/reprox &
+
+This will start the server in the background.
+
+Alternatively, you can use `systemd` to start the server as a service.
+
+	sudo systemctl enable reprox-server.service  # only if not done before
+	sudo systemctl start reprox-server.service   # start the service
+	sudo systemctl status reprox-server.service  # check the service status
 
 ## Libraries
 
