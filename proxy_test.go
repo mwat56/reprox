@@ -100,7 +100,7 @@ func Test_createReverseProxy(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -231,7 +231,7 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 	// Test concurrent requests
 	t.Run("ConcurrentRequests", func(t *testing.T) {
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
