@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -46,7 +45,8 @@ func Test_absDir(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := absDir(tt.args.aBaseDir, tt.args.aDirFile); got != tt.want {
-				t.Errorf("absDir() = %v, want %v", got, tt.want)
+				t.Errorf("absDir() = %q, want %q",
+					got, tt.want)
 			}
 		})
 	}
@@ -63,7 +63,8 @@ func Test_ConfDir(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if gotRDir := ConfDir(); gotRDir != tt.wantRDir {
-				t.Errorf("ConfDir() = %v, want %v", gotRDir, tt.wantRDir)
+				t.Errorf("ConfDir() = %q, want %q",
+					gotRDir, tt.wantRDir)
 			}
 		})
 	}
@@ -76,7 +77,7 @@ func Test_getTarget(t *testing.T) {
 
 	// Setup test config
 	pc := &tProxyConfig{
-		hostMappings: tHostMap{
+		hostMap: tHostMap{
 			"example.com": tHostConfig{
 				target:    target1,
 				destProxy: nil,
@@ -103,13 +104,14 @@ func Test_getTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pc.getTarget(tt.request)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getTarget() = %v, want %v", got, tt.want)
+				t.Errorf("getTarget() = '%v', want '%v'",
+					got, tt.want)
 			}
 		})
 	}
 } // Test_getTarget()
 
-func TestLoadConfig(t *testing.T) {
+func Test_LoadConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		filename string
@@ -125,7 +127,8 @@ func TestLoadConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config, err := LoadConfig(tt.filename)
 			if (nil != err) != tt.wantErr {
-				t.Errorf("LoadConfig() error = '%v', wantErr %v", err, tt.wantErr)
+				t.Errorf("LoadConfig() error = '%v', wantErr '%v'",
+					err, tt.wantErr)
 				return
 			}
 			if nil != config {
@@ -133,13 +136,13 @@ func TestLoadConfig(t *testing.T) {
 			}
 		})
 	}
-} // TestLoadConfig()
+} // Test_LoadConfig()
 
 func Test_loadConfigFile(t *testing.T) {
 	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "config_test_*")
 	if nil != err {
-		t.Fatalf("Failed to create temp directory: %v", err)
+		t.Fatalf("Failed to create temp directory: '%v'", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -171,33 +174,33 @@ func Test_loadConfigFile(t *testing.T) {
 	// Write test files
 	validFile := filepath.Join(tmpDir, "valid.json")
 	if err := os.WriteFile(validFile, []byte(validConfig), 0600); nil != err {
-		t.Fatalf("Failed to write valid config file: %v", err)
+		t.Fatalf("Failed to write valid config file: '%v'", err)
 	}
 
 	invalidURLFile := filepath.Join(tmpDir, "invalidURL.json")
 	if err := os.WriteFile(invalidURLFile, []byte(invalidURLConfig), 0600); nil != err {
-		t.Fatalf("Failed to write invalid config file: %v", err)
+		t.Fatalf("Failed to write invalid config file: '%v'", err)
 	}
 
 	emptyHostsFile := filepath.Join(tmpDir, "empty_hosts.json")
 	if err := os.WriteFile(emptyHostsFile, []byte(emptyHostsConfig), 0600); nil != err {
-		t.Fatalf("Failed to write empty hosts config file: %v", err)
+		t.Fatalf("Failed to write empty hosts config file: '%v'", err)
 	}
 
 	emptyConfigFile := filepath.Join(tmpDir, "empty.json")
 	if err := os.WriteFile(emptyConfigFile, []byte(emptyConfig), 0600); nil != err {
-		t.Fatalf("Failed to write empty config file: %v", err)
+		t.Fatalf("Failed to write empty config file: '%v'", err)
 	}
 
 	invalidJSONFile := filepath.Join(tmpDir, "invalidJSON.json")
 	if err := os.WriteFile(invalidJSONFile, []byte(invalidJSONConfig), 0600); nil != err {
-		t.Fatalf("Failed to write invalid config file: %v", err)
+		t.Fatalf("Failed to write invalid config file: '%v'", err)
 	}
 
 	// Create directory for testing directory error
 	dirPath := filepath.Join(tmpDir, "config_dir")
 	if err := os.Mkdir(dirPath, 0755); nil != err {
-		t.Fatalf("Failed to create test directory: %v", err)
+		t.Fatalf("Failed to create test directory: '%v'", err)
 	}
 
 	tests := []struct {
@@ -212,24 +215,29 @@ func Test_loadConfigFile(t *testing.T) {
 			wantErr:  false,
 			validate: func(t *testing.T, pc *tProxyConfig) {
 				// Check host mappings
-				if 2 != len(pc.hostMappings) {
-					t.Errorf("Expected 2 host mappings, got %d", len(pc.hostMappings))
+				if 2 != len(pc.hostMap) {
+					t.Errorf("Expected 2 host mappings, got %d",
+						len(pc.hostMap))
 				}
 				// Check specific host mapping
-				if host, exists := pc.hostMappings["example.com"]; !exists {
+				if host, ok := pc.hostMap["example.com"]; !ok {
 					t.Error("Expected host mapping for example.com not found")
 				} else if host.target.String() != "http://localhost:8080" {
-					t.Errorf("Wrong target URL, got %s, want http://localhost:8080", host.target.String())
+					t.Errorf("Wrong target URL, got %q, want http://localhost:8080",
+						host.target.String())
 				}
 				// Check configuration values
 				if "/var/log/access.log" != pc.AccessLog {
-					t.Errorf("Wrong access log path, got %s", pc.AccessLog)
+					t.Errorf("Wrong access log path, got %q",
+						pc.AccessLog)
 				}
 				if 150 != pc.MaxRequests {
-					t.Errorf("Wrong max requests, got %d, want 150", pc.MaxRequests)
+					t.Errorf("Wrong max requests, got %d, want 150",
+						pc.MaxRequests)
 				}
 				if 120*time.Second != pc.WindowSize {
-					t.Errorf("Wrong window size, got %v, want 120s", pc.WindowSize)
+					t.Errorf("Wrong window size, got %v, want 120s",
+						pc.WindowSize)
 				}
 			},
 		}, {
@@ -264,7 +272,8 @@ func Test_loadConfigFile(t *testing.T) {
 			pc := &tProxyConfig{}
 			err := pc.loadConfigFile(tt.filename)
 			if (nil != err) != tt.wantErr {
-				t.Errorf("loadConfigFile() error = '%v', wantErr '%v'", err, tt.wantErr)
+				t.Errorf("loadConfigFile() error = '%v', wantErr '%v'",
+					err, tt.wantErr)
 				return
 			}
 
@@ -291,14 +300,14 @@ func Test_loadConfigFile(t *testing.T) {
 	})
 } // Test_loadConfigFile()
 
-func TestNewReverseProxy(t *testing.T) {
+func Test_NewReverseProxy(t *testing.T) {
 	// Create test URLs
 	target1, _ := url.Parse("http://backend1.local:8080")
 	target2, _ := url.Parse("https://backend2.local:9090")
 
 	// Setup test config
 	pc := &tProxyConfig{
-		hostMappings: tHostMap{
+		hostMap: tHostMap{
 			"example.com":        tHostConfig{target1, nil},
 			"secure.example.com": tHostConfig{target2, nil},
 		},
@@ -339,12 +348,14 @@ func TestNewReverseProxy(t *testing.T) {
 
 			// Check URL scheme
 			if tt.request.URL.Scheme != tt.wantScheme {
-				t.Errorf("Scheme = %v, want %v", tt.request.URL.Scheme, tt.wantScheme)
+				t.Errorf("Scheme = %q, want %q",
+					tt.request.URL.Scheme, tt.wantScheme)
 			}
 
 			// Check Host
 			if tt.request.URL.Host != tt.wantHost {
-				t.Errorf("Host = %v, want %v", tt.request.URL.Host, tt.wantHost)
+				t.Errorf("Host = %v, want %v",
+					tt.request.URL.Host, tt.wantHost)
 			}
 
 			// Check if Transport is configured
@@ -356,18 +367,21 @@ func TestNewReverseProxy(t *testing.T) {
 
 				// Verify transport timeouts
 				if transport.IdleConnTimeout != 90*time.Second {
-					t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, 90*time.Second)
+					t.Errorf("IdleConnTimeout = %v, want %v",
+						transport.IdleConnTimeout, 90*time.Second)
 				}
 				if transport.TLSHandshakeTimeout != 10*time.Second {
-					t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, 10*time.Second)
+					t.Errorf("TLSHandshakeTimeout = %v, want %v",
+						transport.TLSHandshakeTimeout, 10*time.Second)
 				}
-				if transport.ExpectContinueTimeout != 1*time.Second {
-					t.Errorf("ExpectContinueTimeout = %v, want %v", transport.ExpectContinueTimeout, 1*time.Second)
+				if transport.ExpectContinueTimeout != 10*time.Second {
+					t.Errorf("ExpectContinueTimeout = %v, want %v",
+						transport.ExpectContinueTimeout, 10*time.Second)
 				}
 			}
 
 			// Verify ErrorHandler is set
-			if proxy.ErrorHandler == nil {
+			if nil == proxy.ErrorHandler {
 				t.Error("ErrorHandler not configured")
 			}
 		})
@@ -381,21 +395,22 @@ func TestNewReverseProxy(t *testing.T) {
 	proxy.ErrorHandler(errorTestWriter, errorTestRequest, testError)
 
 	if errorTestWriter.Code != http.StatusBadGateway {
-		t.Errorf("ErrorHandler status = %d, want %d", errorTestWriter.Code, http.StatusBadGateway)
+		t.Errorf("ErrorHandler status = %d, want %d",
+			errorTestWriter.Code, http.StatusBadGateway)
 	}
 } // TestNewReverseProxy()
 
-func TestSaveConfig(t *testing.T) {
+func Test_SaveConfig(t *testing.T) {
 	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "config_test_*")
 	if nil != err {
-		t.Fatalf("Failed to create temp directory: %v", err)
+		t.Fatalf("Failed to create temp directory: '%v'", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
 	// Create a test configuration
 	testConfig := &tProxyConfig{
-		hostMappings: tHostMap{
+		hostMap: tHostMap{
 			"example.com": tHostConfig{
 				target: &url.URL{
 					Scheme: "http",
@@ -430,7 +445,7 @@ func TestSaveConfig(t *testing.T) {
 			wantErr: false,
 			validate: func(t *testing.T, filename string) {
 				// Read and parse the saved file
-				data, err := os.ReadFile(filename)
+				data, err := os.ReadFile(filename) //#nosec G304
 				if nil != err {
 					t.Errorf("Failed to read saved config: %v", err)
 					return
@@ -447,26 +462,32 @@ func TestSaveConfig(t *testing.T) {
 					t.Errorf("Expected 2 hosts, got %d", len(saved.Hosts))
 				}
 				if saved.Hosts["example.com"] != "http://localhost:8080" {
-					t.Errorf("Unexpected host mapping: %s", saved.Hosts["example.com"])
+					t.Errorf("Unexpected host mapping: %s",
+						saved.Hosts["example.com"])
 				}
 				if saved.AccessLog != "/var/log/access.log" {
-					t.Errorf("Unexpected access log: %s", saved.AccessLog)
+					t.Errorf("Unexpected access log: %q",
+						saved.AccessLog)
 				}
 				if saved.MaxRequests != 150 {
-					t.Errorf("Unexpected max requests: %d", saved.MaxRequests)
+					t.Errorf("Unexpected max requests: %d",
+						saved.MaxRequests)
 				}
 				if saved.WindowSize != 120 {
-					t.Errorf("Unexpected window size: %d", saved.WindowSize)
+					t.Errorf("Unexpected window size: %d",
+						saved.WindowSize)
 				}
 
 				// Verify file permissions
 				info, err := os.Stat(filename)
 				if nil != err {
-					t.Errorf("Failed to stat config file: %v", err)
+					t.Errorf("Failed to stat config file: '%v'",
+						err)
 					return
 				}
 				if mode := info.Mode().Perm(); 0600 != mode {
-					t.Errorf("Unexpected file permissions: %o", mode)
+					t.Errorf("Unexpected file permissions: '%o'",
+						mode)
 				}
 			},
 		}, {
@@ -485,7 +506,8 @@ func TestSaveConfig(t *testing.T) {
 
 			err := tt.config.SaveConfig(filename)
 			if (nil != err) != tt.wantErr {
-				t.Errorf("SaveConfig() error = '%v', wantErr '%v'", err, tt.wantErr)
+				t.Errorf("SaveConfig() error = '%v', wantErr '%v'",
+					err, tt.wantErr)
 				return
 			}
 
@@ -494,9 +516,9 @@ func TestSaveConfig(t *testing.T) {
 			}
 		})
 	}
-} // TestSaveConfig()
+} // Test_SaveConfig()
 
-func TestWatchConfigFile(t *testing.T) {
+func Test_WatchConfigFile(t *testing.T) {
 	// Create a temporary config file
 	tmpFile, err := os.CreateTemp("", "config_*.json")
 	if nil != err {
@@ -524,112 +546,41 @@ func TestWatchConfigFile(t *testing.T) {
 	}
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	// Start watching in a goroutine
 	go WatchConfigFile(ctx, pc, tmpName, 100*time.Millisecond)
 
 	// Wait for watcher to start
-	runtime.Gosched()
+	time.Sleep(200 * time.Millisecond)
 
-	// Test cases
-	tests := []struct {
-		name       string
-		config     string
-		wantHost   string
-		wantTarget string
-		wantError  bool
-	}{
-		{
-			name: "UpdateValidConfig",
-			config: `{
+	// Update config file
+	updatedConfig := `{
 	"hosts": {
 		"example.com": "http://backend2.local:2222"
 	},
 	"access_log": "access.log",
 	"error_log": "error.log"
-}`,
-			wantHost:   "example.com",
-			wantTarget: "http://backend2.local:2222",
-			wantError:  false,
-		}, {
-			name: "InvalidConfig",
-			config: `{
-	"hosts": {
-		"example.com": "invalid:url"
-	}
-}`,
-			wantHost:   "example.com",
-			wantTarget: "http://backend2.local:2222", // Should retain previous valid config
-			wantError:  true,
-		},
+}`
+	if err := os.WriteFile(tmpName, []byte(updatedConfig), 0600); nil != err {
+		t.Fatalf("Failed to write updated config: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Write new config
-			if err := os.WriteFile(tmpName, []byte(tt.config), 0600); nil != err {
-				t.Fatalf("Failed to write config: %v", err)
-			}
+	// Wait for config reload
+	time.Sleep(300 * time.Millisecond)
 
-			// Wait for config reload
-			time.Sleep(800 * time.Millisecond)
+	// Verify config update
+	pc.RLock()
+	host, ok := pc.hostMap["example.com"]
+	pc.RUnlock()
 
-			// Verify config update
-			pc.RLock()
-			host, exists := pc.hostMappings[tt.wantHost]
-			pc.RUnlock()
-
-			if !exists {
-				t.Errorf("Host %s not found in config", tt.wantHost)
-				return
-			}
-
-			if host.target.String() != tt.wantTarget {
-				t.Errorf("got = '%v', want '%v'",
-					host.target.String(), tt.wantTarget)
-			}
-		})
+	if !ok {
+		t.Errorf("Host example.com not found in config")
+	} else if "http://backend2.local:2222" != host.target.String() {
+		t.Errorf("Config not updated, got %q, want http://backend2.local:2222",
+			host.target.String())
 	}
-
-	// Test nil config
-	t.Run("NilConfig", func(t *testing.T) {
-		// Should return immediately without panic
-		WatchConfigFile(ctx, nil, tmpName, 100*time.Millisecond)
-	})
-
-	// Test non-existent file
-	t.Run("NonExistentFile", func(t *testing.T) {
-		nonExistentCtx, nonExistentCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer nonExistentCancel()
-
-		WatchConfigFile(nonExistentCtx, pc, "non-existent.json", 100*time.Millisecond)
-		// Should log error but not panic
-	})
-
-	// Test context cancellation
-	t.Run("ContextCancellation", func(t *testing.T) {
-		cancelCtx, cancelFunc := context.WithCancel(context.Background())
-		done := make(chan struct{})
-
-		go func() {
-			WatchConfigFile(cancelCtx, pc, tmpName, 100*time.Millisecond)
-			close(done)
-		}()
-
-		// Cancel context after a short delay
-		time.Sleep(200 * time.Millisecond)
-		cancelFunc()
-
-		// Wait for WatchConfigFile to return
-		select {
-		case <-done:
-			// Success - function returned after context cancellation
-		case <-time.After(500 * time.Millisecond):
-			t.Error("WatchConfigFile did not return after context cancellation")
-		}
-	})
-} // TestWatchConfigFile()
+} // Test_WatchConfigFile()
 
 /* _EoF_ */

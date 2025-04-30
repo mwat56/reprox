@@ -39,12 +39,12 @@ type (
 	// `tProxyConfig` holds the configuration for the reverse proxy.
 	tProxyConfig struct {
 		sync.RWMutex               // For thread-safe access to configuration
-		hostMappings tHostMap      // Maps hostnames to their configurations
+		hostMap      tHostMap      // Maps hostnames to their configurations
 		AccessLog    string        // Path to access log file
 		ErrorLog     string        // Path to error log file
 		TLSCertFile  string        // Path to TLS certificate file
 		TLSKeyFile   string        // Path to TLS private key file
-		MaxRequests  uint          // Maximum number of requests allowed in the time window
+		MaxRequests  int64         // Max. number of requests allowed per time window
 		WindowSize   time.Duration // Time window in seconds for rate limiting
 	}
 
@@ -55,8 +55,8 @@ type (
 		ErrorLog    string            `json:"error_log,omitempty"`
 		TLSCert     string            `json:"tls_cert,omitempty"`
 		TLSKey      string            `json:"tls_key,omitempty"`
-		MaxRequests uint              `json:"max_requests,omitempty"`
-		WindowSize  uint              `json:"window_size,omitempty"`
+		MaxRequests int64             `json:"max_requests,omitempty"`
+		WindowSize  int64             `json:"window_size,omitempty"`
 	}
 )
 
@@ -149,7 +149,7 @@ func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
 	pc.RLock()
 	defer pc.RUnlock()
 
-	if host, exists := pc.hostMappings[aRequest.Host]; exists {
+	if host, ok := pc.hostMap[aRequest.Host]; ok {
 		return host.target
 	}
 
@@ -164,20 +164,22 @@ func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
 // Returns:
 //   - `error`: An error, if the configuration could not be loaded.
 func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
-	errTxt := "ReProx/loadConfigFile"
+	alTxt := "ReProx/loadConfigFile"
 
 	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
 		err = fmt.Errorf("Failed to accessed config file '%s': %w",
 			aFilename, err)
-		apachelogger.Err(errTxt, err.Error())
+		apachelogger.Err(alTxt, err.Error())
+
 		return err
 	}
 	if fileInfo.IsDir() {
 		msg := fmt.Sprintf("Configuration name points to a directory: %s",
 			aFilename)
-		apachelogger.Err(errTxt, msg)
+		apachelogger.Err(alTxt, msg)
+
 		return errors.New(msg)
 	}
 
@@ -185,14 +187,15 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if mode := fileInfo.Mode().Perm(); 0 != mode&0077 {
 		msg := fmt.Sprintf("Warning: Insecure file permissions: %#o (want 600)",
 			mode)
-		apachelogger.Log(errTxt, msg)
+		apachelogger.Log(alTxt, msg)
 	}
 
-	configData, err := os.ReadFile(aFilename)
+	configData, err := os.ReadFile(aFilename) //#nosec G304
 	if nil != err {
 		err = fmt.Errorf("Failed to read config file '%s': %w",
 			aFilename, err)
-		apachelogger.Err(errTxt, err.Error())
+		apachelogger.Err(alTxt, err.Error())
+
 		return err
 	}
 
@@ -200,14 +203,16 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if err = json.Unmarshal(configData, &fconf); nil != err {
 		err = fmt.Errorf("Failed to parse config file: '%s': %w",
 			aFilename, err)
-		apachelogger.Err(errTxt, err.Error())
+		apachelogger.Err(alTxt, err.Error())
+
 		return err
 	}
 
 	if 0 == len(fconf.Hosts) {
 		err = fmt.Errorf("Missing host mappings in config file: '%s'",
 			aFilename)
-		apachelogger.Err(errTxt, err.Error())
+		apachelogger.Err(alTxt, err.Error())
+
 		return err
 	}
 
@@ -232,30 +237,33 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 		fconf.WindowSize = 60 // default to 60 seconds
 	}
 
+	// Update host mappings
+	tmpMapping := make(tHostMap, len(fconf.Hosts))
+	targetURL := &url.URL{}
+
 	// Update logs and TLS first (atomic operation)
 	pc.Lock()
 	defer pc.Unlock()
-
-	// Update host mappings
-	tempMapping := make(tHostMap)
-	targetURL := &url.URL{}
 	for host, target := range fconf.Hosts {
 		if targetURL, err = url.Parse(target); nil != err {
 			err = fmt.Errorf("Invalid target URL in config file: '%s': %w",
 				aFilename, err)
-			apachelogger.Err(errTxt, err.Error())
-			return err
-		}
-		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
-			err = fmt.Errorf("Invalid target URL scheme for '%s'",
-				targetURL.Scheme)
-			apachelogger.Err(errTxt, err.Error())
+			apachelogger.Err(alTxt, err.Error())
+
 			return err
 		}
 
-		tempMapping[host] = tHostConfig{targetURL, nil}
+		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
+			err = fmt.Errorf("Invalid target URL scheme for '%s'",
+				targetURL.Scheme)
+			apachelogger.Err(alTxt, err.Error())
+
+			return err
+		}
+
+		tmpMapping[host] = tHostConfig{targetURL, nil}
 	}
-	pc.hostMappings = tempMapping
+	pc.hostMap = tmpMapping
 
 	pc.AccessLog = absDir("", fconf.AccessLog)
 	pc.ErrorLog = absDir("", fconf.ErrorLog)
@@ -279,24 +287,24 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	defer pc.RUnlock()
 
 	// Convert internal host mappings to the format used in the config file
-	hosts := make(map[string]string)
-	for host, config := range pc.hostMappings {
+	hosts := make(map[string]string, len(pc.hostMap))
+	for host, config := range pc.hostMap {
 		hosts[host] = config.target.String()
 	}
 
 	// Create config file structure
-	conf := tConfigFile{
+	fconf := tConfigFile{
 		Hosts:       hosts,
 		AccessLog:   pc.AccessLog,
 		ErrorLog:    pc.ErrorLog,
 		TLSCert:     pc.TLSCertFile,
 		TLSKey:      pc.TLSKeyFile,
 		MaxRequests: pc.MaxRequests,
-		WindowSize:  uint(pc.WindowSize.Seconds()),
+		WindowSize:  int64(pc.WindowSize.Seconds()),
 	}
 
 	// Convert to JSON with indentation
-	configData, err := json.MarshalIndent(conf, "", "\t")
+	configData, err := json.MarshalIndent(fconf, "", "\t")
 	if nil != err {
 		err = fmt.Errorf("Failed to marshal configuration to JSON: '%s': %w", aFilename, err)
 		apachelogger.Err("ReProx/SaveConfig", err.Error())
@@ -388,7 +396,7 @@ func ConfDir() (rDir string) {
 //   - `error`: An error, if the configuration could not be loaded.
 func LoadConfig(aFilename string) (*tProxyConfig, error) {
 	result := &tProxyConfig{
-		hostMappings: make(tHostMap),
+		hostMap: make(tHostMap),
 	}
 
 	if err := result.loadConfigFile(aFilename); nil != err {
@@ -425,7 +433,7 @@ func NewReverseProxy(aConfig *tProxyConfig) *httputil.ReverseProxy {
 		Transport: &http.Transport{
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+			ExpectContinueTimeout: 10 * time.Second,
 		},
 	}
 } // NewReverseProxy()
