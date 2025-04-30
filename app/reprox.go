@@ -204,7 +204,7 @@ func setupSignals(aServer *http.Server) {
 			context.Background(), time.Second<<3,
 		)
 		defer cancelTimeout()
-		if err := aServer.Shutdown(ctxTimeout); err != nil {
+		if err := aServer.Shutdown(ctxTimeout); nil != err {
 			exit(fmt.Sprintf("%s: '%v'", gMe, err))
 		}
 	}()
@@ -230,7 +230,7 @@ func main() {
 	defer cancel()
 
 	// Start the config watcher
-	go reprox.WatchConfigFile(ctx, proxyConfig, configFile, 30*time.Second)
+	go reprox.WatchConfigFile(ctx, proxyConfig, configFile, time.Minute)
 	// Wait for watcher to start
 	runtime.Gosched()
 
