@@ -218,12 +218,13 @@ func main() {
 	if 0 != os.Getuid() {
 		exit("\n\troot privileges required to bind to ports 80 and 443; terminating ...\n")
 	}
+	alTxt := "ReProx/main"
 
 	// Load the configuration
 	configFile := filepath.Join(reprox.ConfDir(), gMe+".json")
 	proxyConfig, err := reprox.LoadConfig(configFile)
 	if nil != err {
-		log.Fatalf("Configuration load error: '%v'", err)
+		log.Fatalf("%s: Configuration load error: '%v'", alTxt, err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -251,7 +252,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	if (0 < proxyConfig.MaxRequests) && (nil != getMetrics) {
-		apachelogger.Log("ReProx/main", "Rate limiting enabled")
+		apachelogger.Log(alTxt, "Rate limiting enabled")
 
 		wg.Add(1)
 		go func(aCtx context.Context) { // periodically log metrics
@@ -268,7 +269,7 @@ func main() {
 			for {
 				select {
 				case <-aCtx.Done():
-					apachelogger.Err("ReProx/main", aCtx.Err().Error())
+					apachelogger.Err(alTxt, aCtx.Err().Error())
 					return
 
 				case <-ticker.C:
@@ -284,31 +285,31 @@ func main() {
 							metrics.BlockedRequests,
 							metrics.ActiveClients,
 							metrics.CleanupDuration)
-						apachelogger.Log("ReProx/main", msg)
+						apachelogger.Log(alTxt, msg)
 					}
 				}
 			}
 		}(ctx)
 	}
 
+	var listenErr error
 	wg.Add(1)
-	go func() { // HTTP server
+	go func() { // HTTP server at port 80
 		defer wg.Done()
 
 		s := fmt.Sprintf("%s listening HTTP at :80", gMe)
 		log.Println(s)
-		apachelogger.Log("ReProx/main", s)
+		apachelogger.Log(alTxt, s)
 
 		server80 := createServer80(handler)
-		if err := server80.ListenAndServe(); nil != err {
-			cancel()
-			exit(fmt.Sprintf("%s:80 '%v'", gMe, err))
+		if listenErr = server80.ListenAndServe(); nil != listenErr {
+			return
 		}
 	}()
 
 	if ("" != proxyConfig.TLSCertFile) && ("" != proxyConfig.TLSKeyFile) {
 		wg.Add(1)
-		go func() { // HTTPS server
+		go func() { // HTTPS server at port 443
 			defer wg.Done()
 			// if "" == proxyConfig.TLSCertFile {
 			// 	if err := generateTLS("", ""); nil != err {
@@ -319,24 +320,22 @@ func main() {
 
 			certificate, err := tls.LoadX509KeyPair(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile)
 			if nil != err {
-				// exit(fmt.Sprintf("%s:443 %v", gMe, err))
 				return
 			}
 
 			s := fmt.Sprintf("%s listening HTTPS at :443", gMe)
 			log.Println(s)
-			apachelogger.Log("ReProx/main", s)
+			apachelogger.Log(alTxt, s)
 
 			server443 := createServer443(handler, certificate)
-			if err := server443.ListenAndServeTLS(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile); nil != err {
-				cancel()
-				exit(fmt.Sprintf("%s:443 '%v'", gMe, err))
+			if listenErr = server443.ListenAndServeTLS(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile); nil != listenErr {
+				return
 			}
 		}()
 	}
 
 	wg.Wait()
-	exit(fmt.Sprintf("%s: %s", gMe, "terminating ..."))
+	exit(fmt.Sprintf("%s: %s (%v)", gMe, "terminating ...", listenErr))
 } // main()
 
 /* _EoF_ */
