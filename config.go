@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mwat56/apachelogger"
+	se "github.com/mwat56/sourceerror"
 )
 
 type (
@@ -131,9 +132,12 @@ var (
 // Parameters:
 //   - `aWriter`: The `ResponseWriter` to write HTTP response headers.
 //   - `aRequest`: Struct containing the details of the incoming HTTP request.
-//   - `err`: The error that occurred during the reverse proxy process.
-func (pc *tProxyConfig) ErrorHandler(aWriter http.ResponseWriter, aRequest *http.Request, err error) {
-	apachelogger.Err("ReProx/ErrorHandler", err.Error())
+//   - `aErr`: The error that occurred during the reverse proxy process.
+func (pc *tProxyConfig) ErrorHandler(aWriter http.ResponseWriter, aRequest *http.Request, aErr error) {
+	if nil != aErr {
+		err := se.New(aErr, 2)
+		apachelogger.Err("ReProx/ErrorHandler", err.Error())
+	}
 
 	aWriter.WriteHeader(http.StatusBadGateway) // 502 Bad Gateway
 } // ErrorHandler()
@@ -169,18 +173,18 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
-		err = fmt.Errorf("Failed to accessed config file '%s': %w",
-			aFilename, err)
-		apachelogger.Err(alTxt, err.Error())
+		msg := fmt.Sprintf("Failed to accessed config file '%s': %s",
+			aFilename, err.Error())
+		apachelogger.Err(alTxt, msg)
 
-		return err
+		return se.New(err, 6)
 	}
 	if fileInfo.IsDir() {
 		msg := fmt.Sprintf("Configuration name points to a directory: %s",
 			aFilename)
 		apachelogger.Err(alTxt, msg)
 
-		return errors.New(msg)
+		return se.New(errors.New(msg), 5)
 	}
 
 	// Verify file permissions
@@ -192,28 +196,28 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 
 	configData, err := os.ReadFile(aFilename) //#nosec G304
 	if nil != err {
-		err = fmt.Errorf("Failed to read config file '%s': %w",
-			aFilename, err)
-		apachelogger.Err(alTxt, err.Error())
+		msg := fmt.Sprintf("Failed to read config file '%s': %s",
+			aFilename, err.Error())
+		apachelogger.Err(alTxt, msg)
 
-		return err
+		return se.New(err, 6)
 	}
 
 	var fconf tConfigFile
 	if err = json.Unmarshal(configData, &fconf); nil != err {
-		err = fmt.Errorf("Failed to parse config file: '%s': %w",
-			aFilename, err)
-		apachelogger.Err(alTxt, err.Error())
+		msg := fmt.Sprintf("Failed to parse config file: '%s': %s",
+			aFilename, err.Error())
+		apachelogger.Err(alTxt, msg)
 
-		return err
+		return se.New(err, 5)
 	}
 
 	if 0 == len(fconf.Hosts) {
-		err = fmt.Errorf("Missing host mappings in config file: '%s'",
+		msg := fmt.Sprintf("Missing host mappings in config file: '%s'",
 			aFilename)
-		apachelogger.Err(alTxt, err.Error())
+		apachelogger.Err(alTxt, msg)
 
-		return err
+		return se.New(err, 5)
 	}
 
 	if "" == fconf.AccessLog {
@@ -246,11 +250,11 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	defer pc.Unlock()
 	for host, target := range fconf.Hosts {
 		if targetURL, err = url.Parse(target); nil != err {
-			err = fmt.Errorf("Invalid target URL in config file: '%s': %w",
-				aFilename, err)
-			apachelogger.Err(alTxt, err.Error())
+			msg := fmt.Sprintf("Invalid target URL in config file: '%s': %s",
+				aFilename, err.Error())
+			apachelogger.Err(alTxt, msg)
 
-			return err
+			return se.New(err, 5)
 		}
 
 		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
@@ -258,7 +262,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 				targetURL.Scheme)
 			apachelogger.Err(alTxt, err.Error())
 
-			return err
+			return se.New(err, 5)
 		}
 
 		tmpMapping[host] = tHostConfig{targetURL, nil}
@@ -283,6 +287,8 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 // Returns:
 //   - `error`: An error if the configuration could not be saved.
 func (pc *tProxyConfig) SaveConfig(aFilename string) error {
+	alTxt := "ReProx/SaveConfig"
+
 	pc.RLock()
 	defer pc.RUnlock()
 
@@ -306,18 +312,21 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	// Convert to JSON with indentation
 	configData, err := json.MarshalIndent(fconf, "", "\t")
 	if nil != err {
-		err = fmt.Errorf("Failed to marshal configuration to JSON: '%s': %w", aFilename, err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to marshal configuration to JSON: '%s': %s",
+			aFilename, err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 5)
 	}
 
 	// Create temporary file in the same directory
 	dir := filepath.Dir(aFilename)
 	tmpFile, err := os.CreateTemp(dir, "*.tmp")
 	if nil != err {
-		err = fmt.Errorf("Failed to create temporary file: %w", err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to create temporary file: %s", err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 5)
 	}
 	tmpName := tmpFile.Name()
 	defer os.Remove(tmpName) // Clean up in case of failure
@@ -325,28 +334,36 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	// Write configuration to temporary file
 	if _, err = tmpFile.Write(configData); nil != err {
 		_ = tmpFile.Close()
-		err = fmt.Errorf("Failed to write config to temporary file '%s': %w", tmpName, err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to write config to temporary file %q: %s",
+			tmpName, err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 6)
 	}
 	if err = tmpFile.Close(); nil != err {
-		err = fmt.Errorf("Failed to close temporary file '%s': %w", tmpName, err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to close temporary file '%s': %s",
+			tmpName, err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 5)
 	}
 
 	// Set file permissions to match `loadConfigFile()` expectations
 	if err = os.Chmod(tmpName, 0600); nil != err {
-		err = fmt.Errorf("Failed to set file permissions for '%s': %w", tmpName, err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to set file permissions for '%s': %s",
+			tmpName, err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 5)
 	}
 
 	// Atomically replace the old config file
 	if err = os.Rename(tmpName, aFilename); nil != err {
-		err = fmt.Errorf("Failed to save configuration file '%s': %w", aFilename, err)
-		apachelogger.Err("ReProx/SaveConfig", err.Error())
-		return err
+		msg := fmt.Sprintf("Failed to save configuration file '%s': %s",
+			aFilename, err.Error())
+		apachelogger.Err(alTxt, msg)
+
+		return se.New(err, 5)
 	}
 
 	return nil
