@@ -10,12 +10,15 @@ package reprox
 //lint:file-ignore ST1017 - I prefer Yoda conditions
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"github.com/mwat56/apachelogger"
+	se "github.com/mwat56/sourceerror"
 )
 
 type (
@@ -29,7 +32,7 @@ type (
 // `createReverseProxy()` creates a new reverse proxy that routes requests
 // to the specified target.
 //
-// `aTarget` is a `tHostConfig` struct that holds the requested hostname
+// `aTarget` is a `tHostConfig` struct that holds the requested hostname,
 // and the backend server to which requests will be forwarded.
 //
 // The function returns a pointer to an `httputil.ReverseProxy` instance.
@@ -45,14 +48,13 @@ type (
 //     instance.
 //   - `error`: An error, if the target URL is missing.
 func createReverseProxy(aTarget *tHostConfig) (*httputil.ReverseProxy, error) {
-	alTxt := "ReProx/createReverseProxy"
-	errTxt := "Internal Server Error"
+	const alTxt = "ReProx/createReverseProxy"
 
 	if nil == aTarget {
-		msg := fmt.Sprintf("%s [%v]", errTxt, aTarget)
+		msg := fmt.Sprintf("%s missing target '%v'", alTxt, aTarget)
 		apachelogger.Err(alTxt, msg)
 
-		return nil, fmt.Errorf("%s [%v]", errTxt, aTarget)
+		return nil, se.New(errors.New(msg), 4)
 	}
 
 	if nil != aTarget.destProxy {
@@ -60,16 +62,57 @@ func createReverseProxy(aTarget *tHostConfig) (*httputil.ReverseProxy, error) {
 		return aTarget.destProxy, nil
 	}
 
-	targetURL := aTarget.target
-	if nil == targetURL {
-		msg := fmt.Sprintf("%s %q", errTxt, targetURL)
+	if nil == aTarget.target {
+		msg := fmt.Sprintf("%s missing target URL '%v'", alTxt, aTarget)
 		apachelogger.Err(alTxt, msg)
 
-		return nil, fmt.Errorf("%s %q", errTxt, targetURL)
+		return nil, se.New(errors.New(msg), 4)
 	}
 
-	return httputil.NewSingleHostReverseProxy(targetURL), nil
+	return newReverseProxy(aTarget), nil
 } // createReverseProxy()
+
+// `newReverseProxy()` creates a new reverse proxy for the specified target.
+//
+// Parameters:
+//   - `aTarget`: The target for the reverse proxy.
+//
+// Returns:
+//   - `*httputil.ReverseProxy`: A new reverse proxy instance.
+func newReverseProxy(aTarget *tHostConfig) *httputil.ReverseProxy {
+	director := func(aRequest *http.Request) {
+		targetURL := aTarget.target
+		if nil != targetURL {
+			aRequest.URL.Scheme = targetURL.Scheme
+			aRequest.URL.Host = targetURL.Host
+			targetQuery := targetURL.RawQuery
+			if "" == targetQuery || "" == aRequest.URL.RawQuery {
+				aRequest.URL.RawQuery = targetQuery + aRequest.URL.RawQuery
+				// aRequest.URL.Path, aRequest.URL.RawPath = joinURLPath(targetURL, aRequest.URL)
+			} else {
+				aRequest.URL.RawQuery = targetQuery + "&" + aRequest.URL.RawQuery
+			}
+		} else {
+			aRequest.URL.Scheme = "https"
+			aRequest.URL.Host = "www.cia.gov"
+		}
+		aRequest.Host = aRequest.URL.Host
+	} // director()
+
+	return &httputil.ReverseProxy{
+		Director: director,
+		ErrorHandler: func(aWriter http.ResponseWriter, aRequest *http.Request, aErr error) {
+			apachelogger.Err("ReProx/ErrorHandler", se.New(aErr, 1).Error())
+
+			aWriter.WriteHeader(http.StatusBadGateway) // 502 Bad Gateway
+		},
+		Transport: &http.Transport{
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 10 * time.Second,
+		},
+	}
+} // newReverseProxy()
 
 // `ServeHTTP()` is the main entry point for the reverse proxy server.
 // It handles incoming HTTP requests and forwards them to the
@@ -81,44 +124,41 @@ func createReverseProxy(aTarget *tHostConfig) (*httputil.ReverseProxy, error) {
 //   - `aRequest`: The request containing all the details of the incoming
 //     HTTP request.
 func (ph *TProxyHandler) ServeHTTP(aWriter http.ResponseWriter, aRequest *http.Request) {
-	requestHost := strings.ToLower(aRequest.Host)
+	const alTxt = "ReProx/ServeHTTP"
+
+	requestedHost := strings.ToLower(aRequest.Host)
 
 	// Check if a backend server is available for the requested host.
-	ph.conf.RLock()
-	target, ok := ph.conf.hostMap[requestHost]
-	ph.conf.RUnlock()
+	target, ok := ph.conf.getTarget(requestedHost)
 	if !ok {
-		msg := fmt.Sprintf("Server %q not found", requestHost)
-		apachelogger.Err("ReProx/ServeHTTP", msg)
+		msg := fmt.Sprintf("Server %q not found", requestedHost)
+		apachelogger.Err(alTxt, msg)
 
 		// No backend server found: send a `404 Not Found HTTP` response.
-		http.Error(aWriter, msg, http.StatusNotFound)
+		http.Error(aWriter, msg, http.StatusNotFound) // 404
 		return
 	}
 
 	// Get the existing reverse proxy or create a new one if needed.
 	proxy := target.destProxy
-	if nil == target.destProxy {
+	if nil == proxy {
 		// No available running reverse proxy yet.
 		var err error
 
-		ph.conf.Lock()
 		// Create a new reverse proxy for the target backend server.
 		if proxy, err = createReverseProxy(&target); nil != err {
-			ph.conf.Unlock()
 			// If an error occurs while creating the reverse proxy,
 			// send a 500 Internal Server Error HTTP response.
-			msg := http.StatusText(http.StatusInternalServerError)
-			apachelogger.Err("ReProx/ServeHTTP", msg)
-			http.Error(aWriter, msg, http.StatusInternalServerError)
+			msg := http.StatusText(http.StatusInternalServerError) // 500
+			apachelogger.Err(alTxt, msg)
+			http.Error(aWriter, msg, http.StatusInternalServerError) // 500
 
 			return
 		}
 
 		// Update the configuration with the new reverse proxy.
 		target.destProxy = proxy
-		ph.conf.hostMap[requestHost] = target
-		ph.conf.Unlock()
+		ph.conf.setTarget(requestedHost, target)
 	}
 
 	// Serve the incoming HTTP request using the reverse proxy.

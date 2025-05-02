@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func Test_createReverseProxy(t *testing.T) {
@@ -117,7 +118,115 @@ func Test_createReverseProxy(t *testing.T) {
 	})
 } // Test_createReverseProxy()
 
-func TestTProxyHandler_ServeHTTP(t *testing.T) {
+func Test_newReverseProxy(t *testing.T) {
+	// Create test URLs
+	validTarget, err := url.Parse("http://valid.example.com:8080")
+	if nil != err {
+		t.Fatalf("Failed to parse valid URL: %v", err)
+	}
+
+	// Create test cases
+	tests := []struct {
+		name           string
+		target         *tHostConfig
+		wantDirector   bool
+		wantTransport  bool
+		wantErrHandler bool
+	}{
+		{
+			name: "ValidTarget",
+			target: &tHostConfig{
+				target:    validTarget,
+				destProxy: nil,
+			},
+			wantDirector:   true,
+			wantTransport:  true,
+			wantErrHandler: true,
+		},
+		{
+			name: "NilTarget",
+			target: &tHostConfig{
+				target:    nil,
+				destProxy: nil,
+			},
+			wantDirector:   true,
+			wantTransport:  true,
+			wantErrHandler: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxy := newReverseProxy(tt.target)
+
+			// Check if proxy was created
+			if nil == proxy {
+				t.Error("newReverseProxy() returned nil proxy")
+				return
+			}
+
+			// Check Director function
+			if tt.wantDirector && (nil == proxy.Director) {
+				t.Error("newReverseProxy() returned proxy with nil Director")
+			}
+
+			// Check Transport
+			if tt.wantTransport {
+				transport, ok := proxy.Transport.(*http.Transport)
+				if !ok {
+					t.Error("Transport not configured correctly")
+				} else {
+					// Verify transport timeouts
+					if transport.IdleConnTimeout != 90*time.Second {
+						t.Errorf("IdleConnTimeout = '%v', want '%v'",
+							transport.IdleConnTimeout, 90*time.Second)
+					}
+					if transport.TLSHandshakeTimeout != 10*time.Second {
+						t.Errorf("TLSHandshakeTimeout = '%v', want '%v'",
+							transport.TLSHandshakeTimeout, 10*time.Second)
+					}
+					if transport.ExpectContinueTimeout != 10*time.Second {
+						t.Errorf("ExpectContinueTimeout = '%v', want '%v'",
+							transport.ExpectContinueTimeout, 10*time.Second)
+					}
+				}
+			}
+
+			// Check ErrorHandler
+			if tt.wantErrHandler && nil == proxy.ErrorHandler {
+				t.Error("newReverseProxy() returned proxy with nil ErrorHandler")
+			}
+
+			// Test Director behaviour
+			if nil != proxy.Director {
+				testReq := httptest.NewRequest("GET", "http://test.com", nil)
+				proxy.Director(testReq)
+
+				if tt.target.target != nil {
+					if testReq.URL.Host != tt.target.target.Host {
+						t.Errorf("Director set host to %q, want %q",
+							testReq.URL.Host, tt.target.target.Host)
+					}
+					if testReq.URL.Scheme != tt.target.target.Scheme {
+						t.Errorf("Director set scheme to %q, want %q",
+							testReq.URL.Scheme, tt.target.target.Scheme)
+					}
+				} else {
+					if "www.cia.gov" != testReq.URL.Host {
+						t.Errorf("Director set host to %q, want www.cia.gov",
+							testReq.URL.Host)
+					}
+					if "https" != testReq.URL.Scheme {
+						t.Errorf("Director set scheme to %q, want https",
+							testReq.URL.Scheme)
+					}
+				}
+			}
+		})
+	}
+} // Test_newReverseProxy()
+
+func Test_TProxyHandler_ServeHTTP(t *testing.T) {
 	// Create test backend servers
 	backend1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -314,6 +423,6 @@ func TestTProxyHandler_ServeHTTP(t *testing.T) {
 			}
 		*/
 	})
-} // TestTProxyHandler_ServeHTTP()
+} // Test_TProxyHandler_ServeHTTP()
 
 /* _EoF_ */
