@@ -218,7 +218,7 @@ func main() {
 	if 0 != os.Getuid() {
 		exit("\n\troot privileges required to bind to ports 80 and 443; terminating ...\n")
 	}
-	alTxt := "ReProx/main"
+	const alTxt = "ReProx/main"
 
 	// Load the configuration
 	configFile := filepath.Join(reprox.ConfDir(), gMe+".json")
