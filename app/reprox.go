@@ -37,14 +37,14 @@ var (
 
 // `createServ()` creates and returns a new HTTP server listening
 // on the provided port.
-// The server is configured with the provided handler and with reasonable
-// timeouts.
-// The server is also set up to handle graceful shutdowns when receiving
-// SIGINT or SIGTERM signals.
+//
+// The returned server is configured with the provided handler and with
+// reasonable timeouts. It is also set up to handle graceful shutdowns
+// when receiving `SIGINT` or `SIGTERM` signals.
 //
 // Parameters:
-//   - `aHandler` (http.Handler): The handler to be invoked for each request received by the server.
-//   - `aPort` (string): The TCP address for the server to listen on.
+//   - `aHandler`: The handler to be invoked for each request received by the server.
+//   - `aPort`: The TCP address for the server to listen on.
 //
 // Returns:
 //   - `*http.Server`: A pointer to the newly created and configured HTTP server.
@@ -53,7 +53,7 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 		aPort = ":80"
 	}
 
-	// We need a `server` reference to use it in `setup Signals()`
+	// We need a `server` reference to use it in `setupSignals()`
 	// and to set some reasonable timeouts:
 	server := &http.Server{
 		// The TCP address for the server to listen on:
@@ -93,15 +93,16 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 
 // `createServer443()` creates and returns a new HTTPS server listening
 // on port 443.
-// The server is configured with the provided handler and with reasonable
-// timeouts.
-// The server is also set up to handle graceful shutdowns when receiving
-// SIGINT or SIGTERM signals.
+//
+// The returned server is configured with the provided handler and with
+// reasonable timeouts. It is also set up to handle graceful shutdowns
+// when receiving `SIGINT` or `SIGTERM` signals.
+//
 // Additionally, the server is configured with TLS settings to enhance
 // security, following Mozilla's SSL Configuration Generator recommendations.
 //
 // Parameters:
-//   - `aHandler`: The handler to be invoked for each request received  by the server.
+//   - `aHandler`: The handler to be invoked for each request received by the server.
 //   - `aCertificate`: The TLS certificate to be used for secure communication.
 //
 // Returns:
@@ -149,15 +150,13 @@ func createServer443(aHandler http.Handler, aCertificate tls.Certificate) *http.
 
 // `createServer80()` creates and returns a new HTTP server listening
 // on port 80.
-// The server is configured with the provided handler and with reasonable
-// timeouts.
-// The server is also set up to handle graceful shutdowns when receiving
-// SIGINT or SIGTERM signals.
+//
+// The returned server is configured with the provided handler and with
+// reasonable timeouts. It is also set up to handle graceful shutdowns
+// when receiving `SIGINT` or `SIGTERM` signals.
 //
 // Parameters:
-//   - `aHandler` (http.Handler): The handler to be invoked for each
-//
-// request received by the server.
+//   - `aHandler`: The handler to be invoked for each request received by the server.
 //
 // Returns:
 //   - `*http.Server`: A pointer to the newly created and configured HTTP server.
@@ -176,19 +175,21 @@ func exit(aMessage string) {
 } // exit()
 
 // `setupSignals()` configures the capture of the interrupts `SIGINT`
-// It also sets up a context for the server and registers a shutdown
-// function to be called when the context is canceled.
+// and `SIGTERM`.
+//
+// The function also sets up a context for the server and registers
+// a shutdown function to be called when the context is canceled.
 //
 // Parameters:
 //   - `aServer`: The HTTP server to be gracefully shut down.
 func setupSignals(aServer *http.Server) {
-	// handle `CTRL-C` and `kill(15)`:
-	c := make(chan os.Signal, 2)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	// handle `CTRL-C` and `kill(15)` signals
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		for signal := range c {
-			msg := fmt.Sprintf("%s captured '%v', stopping program and exiting ...", gMe, signal)
+		for signal := range sigChan {
+			msg := fmt.Sprintf("%s captured '%v', stopping server at %q and exiting ...", gMe, signal, aServer.Addr)
 			apachelogger.Err(`ReProx/catchSignals`, msg)
 			log.Println(msg)
 			break
