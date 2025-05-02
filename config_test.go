@@ -11,13 +11,9 @@ package reprox
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -70,46 +66,43 @@ func Test_ConfDir(t *testing.T) {
 	}
 } // Test_ConfDir()
 
-func Test_getTarget(t *testing.T) {
-	// Create test URLs
-	target1, _ := url.Parse("http://backend1.local:8080")
-	target2, _ := url.Parse("https://backend2.local:9090")
-
-	// Setup test config
-	pc := &tProxyConfig{
-		hostMap: tHostMap{
-			"example.com": tHostConfig{
-				target:    target1,
-				destProxy: nil,
-			},
-			"example.com:443": tHostConfig{
-				target:    target2,
-				destProxy: nil,
-			},
-		},
-	}
-
-	tests := []struct {
-		name    string
-		request *http.Request
-		want    *url.URL
-	}{
-		{"ExistingHost", &http.Request{Host: "example.com"}, target1},
-		{"ExistingHostWithPort", &http.Request{Host: "example.com:443"}, target2},
-		{"NonExistentHost", &http.Request{Host: "unknown.com"}, nil},
-		{"EmptyHost", &http.Request{Host: ""}, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := pc.getTarget(tt.request)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getTarget() = '%v', want '%v'",
-					got, tt.want)
-			}
-		})
-	}
-} // Test_getTarget()
+// func Test_getTarget(t *testing.T) {
+// 	// Create test URLs
+// 	target1, _ := url.Parse("http://backend1.local:8080")
+// 	target2, _ := url.Parse("https://backend2.local:9090")
+// 	// Setup test config
+// 	pc := &tProxyConfig{
+// 		hostMap: tHostMap{
+// 			"example.com": tHostConfig{
+// 				target:    target1,
+// 				destProxy: nil,
+// 			},
+// 			"example.com:443": tHostConfig{
+// 				target:    target2,
+// 				destProxy: nil,
+// 			},
+// 		},
+// 	}
+// 	tests := []struct {
+// 		name    string
+// 		request *http.Request
+// 		want    *url.URL
+// 	}{
+// 		{"ExistingHost", &http.Request{Host: "example.com"}, target1},
+// 		{"ExistingHostWithPort", &http.Request{Host: "example.com:443"}, target2},
+// 		{"NonExistentHost", &http.Request{Host: "unknown.com"}, nil},
+// 		{"EmptyHost", &http.Request{Host: ""}, nil},
+// 	}
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			got := pc.getTarget(tt.request)
+// 			if !reflect.DeepEqual(got, tt.want) {
+// 				t.Errorf("getTarget() = '%v', want '%v'",
+// 					got, tt.want)
+// 			}
+// 		})
+// 	}
+// } // Test_getTarget()
 
 func Test_LoadConfig(t *testing.T) {
 	tests := []struct {
@@ -300,105 +293,93 @@ func Test_loadConfigFile(t *testing.T) {
 	})
 } // Test_loadConfigFile()
 
-func Test_NewReverseProxy(t *testing.T) {
-	// Create test URLs
-	target1, _ := url.Parse("http://backend1.local:8080")
-	target2, _ := url.Parse("https://backend2.local:9090")
-
-	// Setup test config
-	pc := &tProxyConfig{
-		hostMap: tHostMap{
-			"example.com":        tHostConfig{target1, nil},
-			"secure.example.com": tHostConfig{target2, nil},
-		},
-	}
-
-	// Create the reverse proxy
-	proxy := NewReverseProxy(pc)
-
-	// Test cases
-	tests := []struct {
-		name          string
-		request       *http.Request
-		wantScheme    string
-		wantHost      string
-		wantTransport bool
-	}{
-		{"ExistingHost", &http.Request{
-			Host: "example.com",
-			URL:  &url.URL{},
-		}, "http", "backend1.local:8080", true,
-		},
-		{"SecureHost", &http.Request{
-			Host: "secure.example.com",
-			URL:  &url.URL{},
-		}, "https", "backend2.local:9090", true,
-		},
-		{"UnknownHost", &http.Request{
-			Host: "unknown.com",
-			URL:  &url.URL{},
-		}, "https", "www.cia.gov", true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test the director function
-			proxy.Director(tt.request)
-
-			// Check URL scheme
-			if tt.request.URL.Scheme != tt.wantScheme {
-				t.Errorf("Scheme = %q, want %q",
-					tt.request.URL.Scheme, tt.wantScheme)
-			}
-
-			// Check Host
-			if tt.request.URL.Host != tt.wantHost {
-				t.Errorf("Host = %v, want %v",
-					tt.request.URL.Host, tt.wantHost)
-			}
-
-			// Check if Transport is configured
-			if tt.wantTransport {
-				transport, ok := proxy.Transport.(*http.Transport)
-				if !ok {
-					t.Error("Transport not configured correctly")
-				}
-
-				// Verify transport timeouts
-				if transport.IdleConnTimeout != 90*time.Second {
-					t.Errorf("IdleConnTimeout = %v, want %v",
-						transport.IdleConnTimeout, 90*time.Second)
-				}
-				if transport.TLSHandshakeTimeout != 10*time.Second {
-					t.Errorf("TLSHandshakeTimeout = %v, want %v",
-						transport.TLSHandshakeTimeout, 10*time.Second)
-				}
-				if transport.ExpectContinueTimeout != 10*time.Second {
-					t.Errorf("ExpectContinueTimeout = %v, want %v",
-						transport.ExpectContinueTimeout, 10*time.Second)
-				}
-			}
-
-			// Verify ErrorHandler is set
-			if nil == proxy.ErrorHandler {
-				t.Error("ErrorHandler not configured")
-			}
-		})
-	}
-
-	// Test error handling
-	errorTestRequest := httptest.NewRequest("GET", "http://example.com", nil)
-	errorTestWriter := httptest.NewRecorder()
-	testError := errors.New("test error")
-
-	proxy.ErrorHandler(errorTestWriter, errorTestRequest, testError)
-
-	if errorTestWriter.Code != http.StatusBadGateway {
-		t.Errorf("ErrorHandler status = %d, want %d",
-			errorTestWriter.Code, http.StatusBadGateway)
-	}
-} // TestNewReverseProxy()
+// func Test_NewReverseProxy(t *testing.T) {
+// 	// Create test URLs
+// 	target1, _ := url.Parse("http://backend1.local:8080")
+// 	target2, _ := url.Parse("https://backend2.local:9090")
+// 	// Setup test config
+// 	pc := &tProxyConfig{
+// 		hostMap: tHostMap{
+// 			"example.com":        tHostConfig{target1, nil},
+// 			"secure.example.com": tHostConfig{target2, nil},
+// 		},
+// 	}
+// 	// Create the reverse proxy
+// 	proxy := NewReverseProxy(pc)
+// 	// Test cases
+// 	tests := []struct {
+// 		name          string
+// 		request       *http.Request
+// 		wantScheme    string
+// 		wantHost      string
+// 		wantTransport bool
+// 	}{
+// 		{"ExistingHost", &http.Request{
+// 			Host: "example.com",
+// 			URL:  &url.URL{},
+// 		}, "http", "backend1.local:8080", true,
+// 		},
+// 		{"SecureHost", &http.Request{
+// 			Host: "secure.example.com",
+// 			URL:  &url.URL{},
+// 		}, "https", "backend2.local:9090", true,
+// 		},
+// 		{"UnknownHost", &http.Request{
+// 			Host: "unknown.com",
+// 			URL:  &url.URL{},
+// 		}, "https", "www.cia.gov", true,
+// 		},
+// 	}
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			// Test the director function
+// 			proxy.Director(tt.request)
+// 			// Check URL scheme
+// 			if tt.request.URL.Scheme != tt.wantScheme {
+// 				t.Errorf("Scheme = %q, want %q",
+// 					tt.request.URL.Scheme, tt.wantScheme)
+// 			}
+// 			// Check Host
+// 			if tt.request.URL.Host != tt.wantHost {
+// 				t.Errorf("Host = %v, want %v",
+// 					tt.request.URL.Host, tt.wantHost)
+// 			}
+// 			// Check if Transport is configured
+// 			if tt.wantTransport {
+// 				transport, ok := proxy.Transport.(*http.Transport)
+// 				if !ok {
+// 					t.Error("Transport not configured correctly")
+// 				}
+// 				// Verify transport timeouts
+// 				if transport.IdleConnTimeout != 90*time.Second {
+// 					t.Errorf("IdleConnTimeout = %v, want %v",
+// 						transport.IdleConnTimeout, 90*time.Second)
+// 				}
+// 				if transport.TLSHandshakeTimeout != 10*time.Second {
+// 					t.Errorf("TLSHandshakeTimeout = %v, want %v",
+// 						transport.TLSHandshakeTimeout, 10*time.Second)
+// 				}
+// 				if transport.ExpectContinueTimeout != 10*time.Second {
+// 					t.Errorf("ExpectContinueTimeout = %v, want %v",
+// 						transport.ExpectContinueTimeout, 10*time.Second)
+// 				}
+// 			}
+// 			// Verify ErrorHandler is set
+// 			if nil == proxy.ErrorHandler {
+// 				t.Error("ErrorHandler not configured")
+// 			}
+// 		})
+// 	}
+// 	// Test error handling
+// 	errorTestRequest := httptest.NewRequest("GET", "http://example.com", nil)
+// 	errorTestWriter := httptest.NewRecorder()
+// 	testError := errors.New("test error")
+// 	proxy.ErrorHandler(errorTestWriter, errorTestRequest, testError)
+// 	if errorTestWriter.Code != http.StatusBadGateway {
+// 		t.Errorf("ErrorHandler status = %d, want %d",
+// 			errorTestWriter.Code, http.StatusBadGateway)
+// 	}
+// } // TestNewReverseProxy()
 
 func Test_SaveConfig(t *testing.T) {
 	// Create a temporary directory for test files

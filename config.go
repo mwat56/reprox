@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -127,37 +126,21 @@ var (
 	}()
 )
 
-// `ErrorHandler()` handles errors occurring during the reverse proxy process.
-//
-// Parameters:
-//   - `aWriter`: The `ResponseWriter` to write HTTP response headers.
-//   - `aRequest`: Struct containing the details of the incoming HTTP request.
-//   - `aErr`: The error that occurred during the reverse proxy process.
-func (pc *tProxyConfig) ErrorHandler(aWriter http.ResponseWriter, aRequest *http.Request, aErr error) {
-	if nil != aErr {
-		err := se.New(aErr, 2)
-		apachelogger.Err("ReProx/ErrorHandler", err.Error())
-	}
-
-	aWriter.WriteHeader(http.StatusBadGateway) // 502 Bad Gateway
-} // ErrorHandler()
-
 // `getTarget()` retrieves the target URL for a requested host.
 //
 // Parameters:
-//   - `aRequest`: Struct containing the details of the incoming HTTP request.
+//   - `aHostname`: The hostname to look up in the configuration.
 //
 // Returns:
-//   - `*url.URL`: The target URL for the given request host, or `nil` if not found.
-func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
+//   - `rTarget`: The target config for the given request host.
+//   - `rOK`: `true` if the target URL was found, `false` otherwise.
+func (pc *tProxyConfig) getTarget(aHost string) (rTarget tHostConfig, rOK bool) {
 	pc.RLock()
 	defer pc.RUnlock()
 
-	if host, ok := pc.hostMap[aRequest.Host]; ok {
-		return host.target
-	}
+	rTarget, rOK = pc.hostMap[aHost]
 
-	return nil
+	return
 } // getTarget()
 
 // `loadConfigFile()` loads the configuration from a JSON file.
@@ -168,7 +151,7 @@ func (pc *tProxyConfig) getTarget(aRequest *http.Request) *url.URL {
 // Returns:
 //   - `error`: An error, if the configuration could not be loaded.
 func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
-	alTxt := "ReProx/loadConfigFile"
+	const alTxt = "ReProx/loadConfigFile"
 
 	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(aFilename)
@@ -287,7 +270,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 // Returns:
 //   - `error`: An error if the configuration could not be saved.
 func (pc *tProxyConfig) SaveConfig(aFilename string) error {
-	alTxt := "ReProx/SaveConfig"
+	const alTxt = "ReProx/SaveConfig"
 
 	pc.RLock()
 	defer pc.RUnlock()
@@ -369,6 +352,18 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	return nil
 } // SaveConfig()
 
+// `setTarget()` sets or updates the target configuration for a host.
+//
+// Parameters:
+//   - `aHost`: The hostname to set the target for.
+//   - `aTarget`: The target configuration to set.
+func (pc *tProxyConfig) setTarget(aHost string, aTarget tHostConfig) {
+	pc.Lock()
+	defer pc.Unlock()
+
+	pc.hostMap[aHost] = aTarget
+} // setTarget()
+
 // --------------------------------------------------------------------------
 
 // `ConfDir()` returns the directory path where the configuration files
@@ -412,48 +407,16 @@ func ConfDir() (rDir string) {
 //   - `*tProxyConfig`: A pointer to the loaded configuration.
 //   - `error`: An error, if the configuration could not be loaded.
 func LoadConfig(aFilename string) (*tProxyConfig, error) {
-	result := &tProxyConfig{
+	pc := &tProxyConfig{
 		hostMap: make(tHostMap),
 	}
 
-	if err := result.loadConfigFile(aFilename); nil != err {
+	if err := pc.loadConfigFile(aFilename); nil != err {
 		return nil, err
 	}
 
-	return result, nil
+	return pc, nil
 } // LoadConfig()
-
-// `NewReverseProxy()` creates a new reverse proxy with the specified
-// configuration.
-//
-// Parameters:
-//   - `aConfig`: The configuration for the reverse proxy.
-//
-// Returns:
-//   - `*httputil.ReverseProxy`: A new reverse proxy instance.
-func NewReverseProxy(aConfig *tProxyConfig) *httputil.ReverseProxy {
-	director := func(aRequest *http.Request) {
-		if target := aConfig.getTarget(aRequest); nil != target {
-			aRequest.URL.Scheme = target.Scheme
-			aRequest.URL.Host = target.Host
-			aRequest.Host = target.Host
-		} else {
-			aRequest.URL.Scheme = "https"
-			aRequest.URL.Host = "www.cia.gov"
-			aRequest.Host = "www.cia.gov"
-		}
-	}
-
-	return &httputil.ReverseProxy{
-		Director:     director,
-		ErrorHandler: aConfig.ErrorHandler,
-		Transport: &http.Transport{
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 10 * time.Second,
-		},
-	}
-} // NewReverseProxy()
 
 // `WatchConfigFile()` monitors a configuration file for changes and
 // reloads it when modified.
@@ -469,7 +432,7 @@ func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, 
 	if nil == aPc {
 		return
 	}
-	errTxt := "ReProx/WatchConfigFile"
+	const errTxt = "ReProx/WatchConfigFile"
 
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
