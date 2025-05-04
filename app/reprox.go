@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mwat56/apachelogger"
+	al "github.com/mwat56/apachelogger"
 	"github.com/mwat56/ratelimit"
 	"github.com/mwat56/reprox"
 )
@@ -85,7 +85,7 @@ func createServ(aHandler http.Handler, aPort string) *http.Server {
 		WriteTimeout: -1, // disable
 	}
 
-	apachelogger.SetErrorLog(server)
+	al.SetErrorLog(server)
 	setupSignals(server)
 
 	return server
@@ -169,7 +169,7 @@ func createServer80(aHandler http.Handler) *http.Server {
 // Parameters:
 //   - `aMessage`: The message to be logged and displayed.
 func exit(aMessage string) {
-	apachelogger.Err("ReProx/main", aMessage)
+	al.Err("ReProx/exit", aMessage)
 	runtime.Gosched() // let the logger write
 	log.Fatalln(aMessage)
 } // exit()
@@ -190,7 +190,7 @@ func setupSignals(aServer *http.Server) {
 	go func() {
 		for signal := range sigChan {
 			msg := fmt.Sprintf("%s captured '%v', stopping server at %q and exiting ...", gMe, signal, aServer.Addr)
-			apachelogger.Err(`ReProx/catchSignals`, msg)
+			al.Err(`ReProx/catchSignals`, msg)
 			log.Println(msg)
 			break
 		}
@@ -240,7 +240,7 @@ func main() {
 	ph := reprox.New(proxyConfig)
 
 	// setup the `ApacheLogger`:
-	handler := apachelogger.Wrap(ph, proxyConfig.AccessLog, proxyConfig.ErrorLog)
+	handler := al.Wrap(ph, proxyConfig.AccessLog, proxyConfig.ErrorLog)
 
 	// include rate limiting, if configured
 	var getMetrics ratelimit.TMetricsFunc
@@ -250,10 +250,12 @@ func main() {
 	}
 	handler, getMetrics = ratelimit.Wrap(handler, maxReq, proxyConfig.WindowSize)
 
-	var wg sync.WaitGroup
-
+	var (
+		listenErr error
+		wg        sync.WaitGroup
+	)
 	if (0 < proxyConfig.MaxRequests) && (nil != getMetrics) {
-		apachelogger.Log(alTxt, "Rate limiting enabled")
+		al.Log(alTxt, "Rate limiting enabled")
 
 		wg.Add(1)
 		go func(aCtx context.Context) { // periodically log metrics
@@ -270,7 +272,7 @@ func main() {
 			for {
 				select {
 				case <-aCtx.Done():
-					apachelogger.Err(alTxt, aCtx.Err().Error())
+					al.Err(alTxt, aCtx.Err().Error())
 					return
 
 				case <-ticker.C:
@@ -286,27 +288,12 @@ func main() {
 							metrics.BlockedRequests,
 							metrics.ActiveClients,
 							metrics.CleanupDuration)
-						apachelogger.Log(alTxt, msg)
+						al.Log(alTxt, msg)
 					}
 				}
 			}
 		}(ctx)
 	}
-
-	var listenErr error
-	wg.Add(1)
-	go func() { // HTTP server at port 80
-		defer wg.Done()
-
-		s := fmt.Sprintf("%s listening HTTP at :80", gMe)
-		log.Println(s)
-		apachelogger.Log(alTxt, s)
-
-		server80 := createServer80(handler)
-		if listenErr = server80.ListenAndServe(); nil != listenErr {
-			return
-		}
-	}()
 
 	if ("" != proxyConfig.TLSCertFile) && ("" != proxyConfig.TLSKeyFile) {
 		wg.Add(1)
@@ -326,7 +313,7 @@ func main() {
 
 			s := fmt.Sprintf("%s listening HTTPS at :443", gMe)
 			log.Println(s)
-			apachelogger.Log(alTxt, s)
+			al.Log(alTxt, s)
 
 			server443 := createServer443(handler, certificate)
 			if listenErr = server443.ListenAndServeTLS(proxyConfig.TLSCertFile, proxyConfig.TLSKeyFile); nil != listenErr {
@@ -334,6 +321,20 @@ func main() {
 			}
 		}()
 	}
+
+	wg.Add(1)
+	go func() { // HTTP server at port 80
+		defer wg.Done()
+
+		s := fmt.Sprintf("%s listening HTTP at :80", gMe)
+		log.Println(s)
+		al.Log(alTxt, s)
+
+		server80 := createServer80(handler)
+		if listenErr = server80.ListenAndServe(); nil != listenErr {
+			return
+		}
+	}()
 
 	wg.Wait()
 	exit(fmt.Sprintf("%s: %s (%v)", gMe, "terminating ...", listenErr))
