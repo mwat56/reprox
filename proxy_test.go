@@ -202,7 +202,7 @@ func Test_newReverseProxy(t *testing.T) {
 				testReq := httptest.NewRequest("GET", "http://test.com", nil)
 				proxy.Director(testReq)
 
-				if tt.target.target != nil {
+				if nil != tt.target.target {
 					if testReq.URL.Host != tt.target.target.Host {
 						t.Errorf("Director set host to %q, want %q",
 							testReq.URL.Host, tt.target.target.Host)

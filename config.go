@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mwat56/apachelogger"
+	al "github.com/mwat56/apachelogger"
 	se "github.com/mwat56/sourceerror"
 )
 
@@ -158,14 +158,14 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if nil != err {
 		msg := fmt.Sprintf("Failed to accessed config file '%s': %s",
 			aFilename, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 6)
 	}
 	if fileInfo.IsDir() {
 		msg := fmt.Sprintf("Configuration name points to a directory: %s",
 			aFilename)
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(errors.New(msg), 5)
 	}
@@ -174,14 +174,14 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if mode := fileInfo.Mode().Perm(); 0 != mode&0077 {
 		msg := fmt.Sprintf("Warning: Insecure file permissions: %#o (want 600)",
 			mode)
-		apachelogger.Log(alTxt, msg)
+		al.Log(alTxt, msg)
 	}
 
 	configData, err := os.ReadFile(aFilename) //#nosec G304
 	if nil != err {
 		msg := fmt.Sprintf("Failed to read config file '%s': %s",
 			aFilename, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 6)
 	}
@@ -190,7 +190,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if err = json.Unmarshal(configData, &fconf); nil != err {
 		msg := fmt.Sprintf("Failed to parse config file: '%s': %s",
 			aFilename, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 5)
 	}
@@ -198,9 +198,9 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 	if 0 == len(fconf.Hosts) {
 		msg := fmt.Sprintf("Missing host mappings in config file: '%s'",
 			aFilename)
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
-		return se.New(err, 5)
+		return se.New(err, 6)
 	}
 
 	if "" == fconf.AccessLog {
@@ -235,7 +235,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 		if targetURL, err = url.Parse(target); nil != err {
 			msg := fmt.Sprintf("Invalid target URL in config file: '%s': %s",
 				aFilename, err.Error())
-			apachelogger.Err(alTxt, msg)
+			al.Err(alTxt, msg)
 
 			return se.New(err, 5)
 		}
@@ -243,7 +243,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 		if ("http" != targetURL.Scheme) && ("https" != targetURL.Scheme) {
 			err = fmt.Errorf("Invalid target URL scheme for '%s'",
 				targetURL.Scheme)
-			apachelogger.Err(alTxt, err.Error())
+			al.Err(alTxt, err.Error())
 
 			return se.New(err, 5)
 		}
@@ -300,7 +300,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	if nil != err {
 		msg := fmt.Sprintf("Failed to marshal configuration to JSON: '%s': %s",
 			aFilename, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 6)
 	}
@@ -310,7 +310,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	tmpFile, err := os.CreateTemp(dir, "*.tmp")
 	if nil != err {
 		msg := fmt.Sprintf("Failed to create temporary file: %s", err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 5)
 	}
@@ -322,14 +322,14 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 		_ = tmpFile.Close()
 		msg := fmt.Sprintf("Failed to write config to temporary file %q: %s",
 			tmpName, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 6)
 	}
 	if err = tmpFile.Close(); nil != err {
 		msg := fmt.Sprintf("Failed to close temporary file '%s': %s",
 			tmpName, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 5)
 	}
@@ -338,7 +338,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	if err = os.Chmod(tmpName, 0600); nil != err {
 		msg := fmt.Sprintf("Failed to set file permissions for '%s': %s",
 			tmpName, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 5)
 	}
@@ -347,7 +347,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 	if err = os.Rename(tmpName, aFilename); nil != err {
 		msg := fmt.Sprintf("Failed to save configuration file '%s': %s",
 			aFilename, err.Error())
-		apachelogger.Err(alTxt, msg)
+		al.Err(alTxt, msg)
 
 		return se.New(err, 5)
 	}
@@ -439,12 +439,12 @@ func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, 
 
 	fileInfo, err := os.Stat(aFilename)
 	if nil != err {
-		apachelogger.Err(errTxt, err.Error())
+		al.Err(errTxt, err.Error())
 		return
 	}
 
 	if fileInfo.IsDir() {
-		apachelogger.Err(errTxt, "Config name points to a directory")
+		al.Err(errTxt, "Config name points to a directory")
 		return
 	}
 
@@ -456,21 +456,21 @@ func WatchConfigFile(aCtx context.Context, aPc *tProxyConfig, aFilename string, 
 	for {
 		select {
 		case <-aCtx.Done():
-			apachelogger.Err(errTxt, aCtx.Err().Error())
+			al.Err(errTxt, aCtx.Err().Error())
 			return
 
 		case <-ticker.C:
 			if fileInfo, err = os.Stat(aFilename); nil != err {
-				apachelogger.Err(errTxt, err.Error())
+				al.Err(errTxt, err.Error())
 				continue
 			}
 
 			if modTime = fileInfo.ModTime(); modTime != prevModTime {
 				if err = aPc.loadConfigFile(aFilename); nil != err {
-					apachelogger.Err(errTxt, err.Error())
+					al.Err(errTxt, err.Error())
 				} else {
 					prevModTime = modTime
-					apachelogger.Log(errTxt, "Configuration successfully reloaded")
+					al.Log(errTxt, "Configuration successfully reloaded")
 				}
 			} // if
 		} // select
