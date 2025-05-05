@@ -51,7 +51,7 @@ func createReverseProxy(aTarget *tHostConfig) (*httputil.ReverseProxy, error) {
 	const alTxt = "ReProx/createReverseProxy"
 
 	if nil == aTarget {
-		msg := fmt.Sprintf("%s missing target '%v'", alTxt, aTarget)
+		msg := fmt.Sprintf("Missing target '%v'", aTarget)
 		al.Err(alTxt, msg)
 
 		return nil, se.New(errors.New(msg), 4)
@@ -63,7 +63,7 @@ func createReverseProxy(aTarget *tHostConfig) (*httputil.ReverseProxy, error) {
 	}
 
 	if nil == aTarget.target {
-		msg := fmt.Sprintf("%s missing target URL '%v'", alTxt, aTarget)
+		msg := fmt.Sprintf("Missing target URL '%v'", aTarget)
 		al.Err(alTxt, msg)
 
 		return nil, se.New(errors.New(msg), 4)
@@ -88,11 +88,11 @@ func newReverseProxy(aTarget *tHostConfig) *httputil.ReverseProxy {
 			targetQuery := targetURL.RawQuery
 			if "" == targetQuery || "" == aRequest.URL.RawQuery {
 				aRequest.URL.RawQuery = targetQuery + aRequest.URL.RawQuery
-				// aRequest.URL.Path, aRequest.URL.RawPath = joinURLPath(targetURL, aRequest.URL)
 			} else {
 				aRequest.URL.RawQuery = targetQuery + "&" + aRequest.URL.RawQuery
 			}
 		} else {
+			al.Err("ReProx/director", "Missing target URL")
 			aRequest.URL.Scheme = "https"
 			aRequest.URL.Host = "www.cia.gov"
 		}
@@ -110,9 +110,40 @@ func newReverseProxy(aTarget *tHostConfig) *httputil.ReverseProxy {
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 10 * time.Second,
+			// Add connection pooling settings
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
 		},
 	}
 } // newReverseProxy()
+
+type (
+	// `IConnCloser` is an interface for types that can close idle connections.
+	IConnCloser interface {
+		CloseIdleConnections()
+	}
+)
+
+// `CloseIdleConnections()` closes all idle connections in the proxy's
+// transport layer.
+func (ph *TProxyHandler) CloseIdleConnections() {
+	const alTxt = "ReProx/CloseIdleConnections"
+
+	ph.conf.RLock()
+	defer ph.conf.RUnlock()
+
+	for _, config := range ph.conf.hostMap {
+		if proxy := config.destProxy; nil != proxy {
+			if transport, ok := proxy.Transport.(*http.Transport); ok {
+				al.Log(alTxt, "Closing idle transport connections")
+				transport.CloseIdleConnections()
+			} else if closer, ok := proxy.Transport.(IConnCloser); ok {
+				al.Log(alTxt, "Closing idle connections")
+				closer.CloseIdleConnections()
+			}
+		}
+	}
+} // CloseIdleConnections()
 
 // `ServeHTTP()` is the main entry point for the reverse proxy server.
 // It handles incoming HTTP requests and forwards them to the

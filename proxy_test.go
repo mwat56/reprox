@@ -226,6 +226,66 @@ func Test_newReverseProxy(t *testing.T) {
 	}
 } // Test_newReverseProxy()
 
+// Define the `CloseIdleConnections()` method for our mock type.
+type (
+	// `tRoundTripper` is a mock implementation of the `http.RoundTripper`
+	// interface for `Test_TProxyHandler_CloseIdleConnections()`.
+	tRoundTripper struct {
+		closeIdleCalled bool
+	}
+)
+
+// Implement http.RoundTripper interface
+func (m *tRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 200}, nil
+} // RoundTrip()
+
+// Implement IConnCloser interface
+func (m *tRoundTripper) CloseIdleConnections() {
+	m.closeIdleCalled = true
+} // CloseIdleConnections()
+
+func Test_TProxyHandler_CloseIdleConnections(t *testing.T) {
+	// Create test URLs
+	validTarget, _ := url.Parse("http://valid.example.com:8080")
+
+	// Create mock transports
+	mockTransport1 := &tRoundTripper{}
+	mockTransport2 := &tRoundTripper{}
+
+	// Create test configuration with proxies using our mock transport
+	config := &tProxyConfig{
+		hostMap: tHostMap{
+			"example.com": {
+				target: validTarget,
+				destProxy: &httputil.ReverseProxy{
+					Transport: mockTransport1,
+				},
+			},
+			"another.com": {
+				target: validTarget,
+				destProxy: &httputil.ReverseProxy{
+					Transport: mockTransport2,
+				},
+			},
+		}, // hostMap
+	} // config
+
+	// Create proxy handler with our config
+	handler := New(config)
+
+	// Call the method under test
+	handler.CloseIdleConnections()
+
+	// Verify CloseIdleConnections was called on all transports
+	if !mockTransport1.closeIdleCalled {
+		t.Error("CloseIdleConnections not called on first transport")
+	}
+	if !mockTransport2.closeIdleCalled {
+		t.Error("CloseIdleConnections not called on second transport")
+	}
+} // Test_TProxyHandler_CloseIdleConnections()
+
 func Test_TProxyHandler_ServeHTTP(t *testing.T) {
 	// Create test backend servers
 	backend1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +319,7 @@ func Test_TProxyHandler_ServeHTTP(t *testing.T) {
 	}
 
 	// Create proxy handler
-	handler := &TProxyHandler{conf: config}
+	handler := New(config)
 	/* */
 	tests := []struct {
 		name           string
@@ -366,7 +426,7 @@ func Test_TProxyHandler_ServeHTTP(t *testing.T) {
 				},
 			},
 		}
-		handler := &TProxyHandler{conf: invalidConfig}
+		handler := New(invalidConfig)
 
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
 		req.Host = "example.com"
