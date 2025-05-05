@@ -189,10 +189,16 @@ func setupSignals(aServer *http.Server) {
 
 	go func() {
 		for signal := range sigChan {
-			msg := fmt.Sprintf("%s captured '%v', stopping server at %q and exiting ...", gMe, signal, aServer.Addr)
+			msg := fmt.Sprintf("%s captured '%v', stopping server at %q and exiting ...",
+				gMe, signal, aServer.Addr)
 			al.Err(`ReProx/catchSignals`, msg)
 			log.Println(msg)
 			break
+		}
+
+		// Close idle proxy connections before shutting down server
+		if ph, ok := aServer.Handler.(*reprox.TProxyHandler); ok {
+			ph.CloseIdleConnections()
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
