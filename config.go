@@ -151,7 +151,7 @@ func (pc *tProxyConfig) getTarget(aHost string) (rTarget tHostConfig, rOK bool) 
 // Returns:
 //   - `error`: An error, if the configuration could not be loaded.
 func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
-	const alTxt = "ReProx/loadConfigFile"
+	const alTxt = "tProxyConfig.loadConfigFile"
 
 	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(aFilename)
@@ -248,8 +248,11 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 			return se.New(err, 5)
 		}
 
-		tmpMapping[host] = tHostConfig{targetURL, nil}
-	}
+		// Pre-create the proxy
+		hostConfig := tHostConfig{targetURL, nil}
+		hostConfig.destProxy = newReverseProxy(&hostConfig)
+		tmpMapping[host] = hostConfig
+	} // for
 	pc.hostMap = tmpMapping
 
 	pc.AccessLog = absDir("", fconf.AccessLog)
@@ -270,7 +273,7 @@ func (pc *tProxyConfig) loadConfigFile(aFilename string) error {
 // Returns:
 //   - `error`: An error if the configuration could not be saved.
 func (pc *tProxyConfig) SaveConfig(aFilename string) error {
-	const alTxt = "ReProx/SaveConfig"
+	const alTxt = "tProxyConfig.SaveConfig"
 
 	pc.RLock()
 	defer pc.RUnlock()
@@ -299,7 +302,7 @@ func (pc *tProxyConfig) SaveConfig(aFilename string) error {
 			aFilename, err.Error())
 		apachelogger.Err(alTxt, msg)
 
-		return se.New(err, 5)
+		return se.New(err, 6)
 	}
 
 	// Create temporary file in the same directory
